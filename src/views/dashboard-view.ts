@@ -1501,15 +1501,18 @@ export class RssDashboardView extends ItemView {
     try {
       const service = new AiSummaryService(summarySettings);
       const result = await service.summarizeArticle(article);
+      const updates: Partial<FeedItem> = {
+        aiSummaryError: undefined,
+      };
+      if (summarySettings.updateCardSummary) {
+        updates.aiSummaryText = result.summary;
+        updates.aiSummaryGeneratedAt = Date.now();
+        updates.aiSummaryProvider = result.provider;
+        updates.aiSummaryModel = result.model;
+      }
       await this.updateArticleStatus(
         article,
-        {
-          aiSummaryText: result.summary,
-          aiSummaryGeneratedAt: Date.now(),
-          aiSummaryProvider: result.provider,
-          aiSummaryModel: result.model,
-          aiSummaryError: undefined,
-        },
+        updates,
         // Keep summarize updates targeted to the affected card (GUID-based DOM sync).
         false,
       );

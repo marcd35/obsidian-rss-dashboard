@@ -1649,6 +1649,18 @@ export class RssDashboardSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("Update card summary")
+      .setDesc("When enabled, AI summaries are saved to the article and displayed on dashboard cards. When disabled, summaries are generated and shown in the reader view only.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.aiSummary.updateCardSummary)
+          .onChange(async (value) => {
+            this.plugin.settings.aiSummary.updateCardSummary = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
       .setName("Provider")
       .setDesc("Choose which API provider to use for summaries")
       .addDropdown((dropdown) =>

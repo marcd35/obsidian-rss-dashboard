@@ -243,6 +243,7 @@ export interface AiSummarySettings {
   maxInputChars: number;
   maxOutputTokens: number;
   timeoutMs: number;
+  updateCardSummary: boolean;
 }
 
 export interface RssDashboardSettings {
@@ -409,6 +410,7 @@ guid: "{{guid}}"
     maxInputChars: 12000,
     maxOutputTokens: 280,
     timeoutMs: 30000,
+    updateCardSummary: false,
   },
   display: {
     showCoverImage: true,
