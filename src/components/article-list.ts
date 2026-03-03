@@ -453,7 +453,7 @@ export class ArticleList {
     }
   }
 
-  public updateArticleInPlace(article: FeedItem): void {
+  public updateArticleInPlace(article: FeedItem): boolean {
     const index = this.articles.findIndex((a) => a.guid === article.guid);
     if (index !== -1) {
       this.articles[index] = article;
@@ -467,12 +467,14 @@ export class ArticleList {
     ).filter((el) => el.id === targetId);
 
     if (articleEls.length === 0) {
-      return;
+      return false;
     }
 
     articleEls.forEach((articleEl) => {
       this.syncArticleElement(articleEl, article);
     });
+
+    return true;
   }
 
   private syncArticleElement(articleEl: HTMLElement, article: FeedItem): void {

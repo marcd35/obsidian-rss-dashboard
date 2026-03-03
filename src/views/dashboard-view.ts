@@ -1609,31 +1609,30 @@ export class RssDashboardView extends ItemView {
       return;
     }
 
-    if (!this.articleList.hasArticle(article.guid)) {
-      const inserted = this.articleList.insertArticleInPlace(
-        article,
-        this.settings.articleSort,
-      );
-
-      if (!inserted) {
-        const filtered = this.getFilteredArticles();
-        const pageSize = this.getCurrentPageSize();
-        const currentPage = this.getCurrentPage();
-        const startIdx = (currentPage - 1) * pageSize;
-        const endIdx = startIdx + pageSize;
-        const articlesForPage = filtered.slice(startIdx, endIdx);
-        this.articleList.refilter(
-          new Set(this.activeStatusFilters),
-          new Set(this.activeTagFilters),
-          this.filterLogic,
-          articlesForPage,
-        );
-      }
-
+    if (this.articleList.updateArticleInPlace(article)) {
       return;
     }
 
-    this.articleList.updateArticleInPlace(article);
+    const inserted = this.articleList.insertArticleInPlace(
+      article,
+      this.settings.articleSort,
+    );
+
+    if (!inserted) {
+      const filtered = this.getFilteredArticles();
+      const pageSize = this.getCurrentPageSize();
+      const currentPage = this.getCurrentPage();
+      const startIdx = (currentPage - 1) * pageSize;
+      const endIdx = startIdx + pageSize;
+      const articlesForPage = filtered.slice(startIdx, endIdx);
+      this.articleList.refilter(
+        new Set(this.activeStatusFilters),
+        new Set(this.activeTagFilters),
+        this.filterLogic,
+        articlesForPage,
+      );
+    }
+
   }
 
   /**

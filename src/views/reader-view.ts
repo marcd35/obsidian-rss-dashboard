@@ -26,6 +26,7 @@ import TurndownService from "turndown";
 import { ensureUtf8Meta } from "../utils/platform-utils";
 import { RSS_DASHBOARD_VIEW_TYPE } from "./dashboard-view";
 import { AiSummaryService } from "../services/ai-summary-service";
+import { getResolvedAiProviderConfig } from "../services/ai-summary-settings-utils";
 import { EditAiSummaryModal } from "../modals/edit-ai-summary-modal";
 import type { AiSummarySettingsUpdatedEventPayload } from "../../main";
 
@@ -1164,7 +1165,8 @@ export class ReaderView extends ItemView {
     };
     this.isAiSummaryCollapsed = false;
     Object.assign(this.currentItem, updates);
-    this.onArticleUpdate(this.currentItem, updates, true);
+    // Keep delete behavior aligned with summarize: targeted card sync only.
+    this.onArticleUpdate(this.currentItem, updates, false);
     await this.displayItem(this.currentItem, this.relatedItems);
     new Notice("Summary deleted.");
   }
@@ -1179,7 +1181,10 @@ export class ReaderView extends ItemView {
       return;
     }
 
-    const initialPrompt = this.settings.aiSummary.promptTemplate || "";
+    const initialPrompt = getResolvedAiProviderConfig(
+      this.settings.aiSummary,
+      this.settings.aiSummary.provider,
+    ).promptTemplate;
     new EditAiSummaryModal(this.app, initialPrompt, async (promptTemplate) => {
       await this.generateSummary(undefined, promptTemplate, true);
     }).open();
