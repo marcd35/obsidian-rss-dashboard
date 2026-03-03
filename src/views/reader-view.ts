@@ -26,8 +26,11 @@ import TurndownService from "turndown";
 import { ensureUtf8Meta } from "../utils/platform-utils";
 import { RSS_DASHBOARD_VIEW_TYPE } from "./dashboard-view";
 import { AiSummaryService } from "../services/ai-summary-service";
+import type { AiSummarySettingsUpdatedEventPayload } from "../../main";
 
 export const RSS_READER_VIEW_TYPE = "rss-reader-view";
+const AI_SUMMARY_SETTINGS_UPDATED_EVENT =
+  "rss-dashboard:ai-summary-settings-updated";
 
 export class ReaderView extends ItemView {
   private currentItem: FeedItem | null = null;
@@ -49,6 +52,8 @@ export class ReaderView extends ItemView {
   private turndownService = new TurndownService();
   private readToggleButton: HTMLElement | null = null;
   private starToggleButton: HTMLElement | null = null;
+  private summarizeButton: HTMLElement | null = null;
+  private actionContainer: HTMLElement | null = null;
   private returnLeaf: WorkspaceLeaf | null = null;
   private tagsDropdownPortal: HTMLElement | null = null;
   private tagsDropdownBackdrop: HTMLElement | null = null;
@@ -62,12 +67,13 @@ export class ReaderView extends ItemView {
   }
 
   private async navigateBackToDashboard(): Promise<void> {
-    const dashboardLeaves =
-      this.app.workspace.getLeavesOfType(RSS_DASHBOARD_VIEW_TYPE);
+    const dashboardLeaves = this.app.workspace.getLeavesOfType(
+      RSS_DASHBOARD_VIEW_TYPE,
+    );
     const targetLeaf =
       this.returnLeaf && dashboardLeaves.includes(this.returnLeaf)
         ? this.returnLeaf
-        : dashboardLeaves[0] ?? null;
+        : (dashboardLeaves[0] ?? null);
 
     if (targetLeaf) {
       this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
@@ -160,6 +166,8 @@ export class ReaderView extends ItemView {
   onOpen(): Promise<void> {
     this.contentEl.empty();
     this.contentEl.addClass("rss-reader-view");
+    this.actionContainer = null;
+    this.summarizeButton = null;
 
     const header = this.contentEl.createDiv({ cls: "rss-reader-header" });
 
@@ -180,6 +188,7 @@ export class ReaderView extends ItemView {
     this.currentItem = null;
 
     const actions = header.createDiv({ cls: "rss-reader-actions" });
+    this.actionContainer = actions;
 
     // Save button
     const saveButton = actions.createDiv({
@@ -194,16 +203,7 @@ export class ReaderView extends ItemView {
       }
     });
 
-    if (this.settings.aiSummary?.enabled) {
-      const summarizeButton = actions.createDiv({
-        cls: "rss-reader-action-button",
-        attr: { title: "Summarize with AI" },
-      });
-      setIcon(summarizeButton, "sparkles");
-      summarizeButton.addEventListener("click", () => {
-        void this.summarizeCurrentItem(summarizeButton);
-      });
-    }
+    this.updateAiSummaryActionVisibility();
 
     // Read toggle button
     this.readToggleButton = actions.createDiv({
@@ -256,7 +256,56 @@ export class ReaderView extends ItemView {
     this.readingContainer = this.contentEl.createDiv({
       cls: "rss-reader-content",
     });
+
+    this.registerEvent(
+      (
+        this.app.workspace as unknown as {
+          on: (
+            name: string,
+            callback: (payload: AiSummarySettingsUpdatedEventPayload) => void,
+          ) => unknown;
+        }
+      ).on(
+        AI_SUMMARY_SETTINGS_UPDATED_EVENT,
+        (_payload: AiSummarySettingsUpdatedEventPayload) => {
+          this.updateAiSummaryActionVisibility();
+        },
+      ) as never,
+    );
+
     return Promise.resolve();
+  }
+
+  private updateAiSummaryActionVisibility(): void {
+    if (!this.actionContainer) {
+      return;
+    }
+
+    const aiEnabled = this.settings.aiSummary?.enabled ?? false;
+    if (!aiEnabled) {
+      this.summarizeButton?.remove();
+      this.summarizeButton = null;
+      return;
+    }
+
+    if (this.summarizeButton) {
+      return;
+    }
+
+    const summarizeButton = this.actionContainer.createDiv({
+      cls: "rss-reader-action-button",
+      attr: { title: "Summarize with AI" },
+    });
+    setIcon(summarizeButton, "sparkles");
+    summarizeButton.addEventListener("click", () => {
+      void this.summarizeCurrentItem(summarizeButton);
+    });
+
+    if (this.readToggleButton?.parentElement === this.actionContainer) {
+      this.actionContainer.insertBefore(summarizeButton, this.readToggleButton);
+    }
+
+    this.summarizeButton = summarizeButton;
   }
 
   private getCustomTemplateForArticle(item: FeedItem): string | undefined {
@@ -825,6 +874,8 @@ export class ReaderView extends ItemView {
 
   onClose(): Promise<void> {
     this.closeTagsDropdownPortal();
+    this.actionContainer = null;
+    this.summarizeButton = null;
     this.contentEl.empty();
     return Promise.resolve();
   }
@@ -1070,7 +1121,9 @@ export class ReaderView extends ItemView {
         e.stopPropagation();
         this.closeTagsDropdownPortal();
         // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-        void (this.app as any).plugins.plugins["rss-dashboard"].openTagsSettings();
+        void (this.app as any).plugins.plugins[
+          "rss-dashboard"
+        ].openTagsSettings();
       });
       const doneBtn = sheetActions.createEl("button", {
         cls: "rss-dashboard-tags-sheet-btn rss-dashboard-tags-sheet-btn-done",
@@ -1177,78 +1230,78 @@ export class ReaderView extends ItemView {
     updateTagSeparatorVisibility();
 
     if (!isMobile) {
-    const inlineAddRow = portalDropdown.createDiv({
-      cls: "rss-dashboard-tag-inline-add-row",
-    });
+      const inlineAddRow = portalDropdown.createDiv({
+        cls: "rss-dashboard-tag-inline-add-row",
+      });
 
-    const colorInput = inlineAddRow.createEl("input", {
-      attr: {
-        type: "color",
-        value: "#3498db",
-      },
-      cls: "rss-dashboard-tag-inline-color",
-    });
+      const colorInput = inlineAddRow.createEl("input", {
+        attr: {
+          type: "color",
+          value: "#3498db",
+        },
+        cls: "rss-dashboard-tag-inline-color",
+      });
 
-    const nameInput = inlineAddRow.createEl("input", {
-      attr: {
-        type: "text",
-        placeholder: "Add new tag...",
-        autocomplete: "off",
-      },
-      cls: "rss-dashboard-tag-inline-input",
-    });
-    nameInput.spellcheck = false;
+      const nameInput = inlineAddRow.createEl("input", {
+        attr: {
+          type: "text",
+          placeholder: "Add new tag...",
+          autocomplete: "off",
+        },
+        cls: "rss-dashboard-tag-inline-input",
+      });
+      nameInput.spellcheck = false;
 
-    const addButton = inlineAddRow.createEl("button", {
-      cls: "rss-dashboard-tag-inline-button",
-      attr: { title: "Add tag" },
-    });
-    setIcon(addButton, "plus");
+      const addButton = inlineAddRow.createEl("button", {
+        cls: "rss-dashboard-tag-inline-button",
+        attr: { title: "Add tag" },
+      });
+      setIcon(addButton, "plus");
 
-    const submitInlineTag = () => {
-      const tagName = nameInput.value.trim();
-      const tagColor = colorInput.value;
+      const submitInlineTag = () => {
+        const tagName = nameInput.value.trim();
+        const tagColor = colorInput.value;
 
-      if (!tagName) {
-        new Notice("Please enter a tag name!");
-        return;
-      }
+        if (!tagName) {
+          new Notice("Please enter a tag name!");
+          return;
+        }
 
-      if (
-        this.settings.availableTags.some(
-          (tag) => tag.name.toLowerCase() === tagName.toLowerCase(),
-        )
-      ) {
-        new Notice("A tag with this name already exists!");
-        return;
-      }
+        if (
+          this.settings.availableTags.some(
+            (tag) => tag.name.toLowerCase() === tagName.toLowerCase(),
+          )
+        ) {
+          new Notice("A tag with this name already exists!");
+          return;
+        }
 
-      const newTag: Tag = {
-        name: tagName,
-        color: tagColor,
+        const newTag: Tag = {
+          name: tagName,
+          color: tagColor,
+        };
+
+        this.settings.availableTags.push(newTag);
+        this.toggleTag(item, newTag, true);
+        appendTagItem(newTag, true);
+
+        nameInput.value = "";
+        requestAnimationFrame(() => nameInput.focus());
+        new Notice(`Tag "${tagName}" added`);
       };
 
-      this.settings.availableTags.push(newTag);
-      this.toggleTag(item, newTag, true);
-      appendTagItem(newTag, true);
-
-      nameInput.value = "";
-      requestAnimationFrame(() => nameInput.focus());
-      new Notice(`Tag "${tagName}" added`);
-    };
-
-    addButton.addEventListener("click", (e) => {
-      e.stopPropagation();
-      submitInlineTag();
-    });
-
-    nameInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
+      addButton.addEventListener("click", (e) => {
         e.stopPropagation();
         submitInlineTag();
-      }
-    });
+      });
+
+      nameInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.stopPropagation();
+          submitInlineTag();
+        }
+      });
     } // end !isMobile
 
     const rect = anchor.getBoundingClientRect();
@@ -1261,7 +1314,11 @@ export class ReaderView extends ItemView {
       const syncMobileViewportHeight = () => {
         const vvp = targetWindow.visualViewport;
         const viewportHeight = vvp?.height ?? targetWindow.innerHeight;
-        portalDropdown.style.setProperty("max-height", `${viewportHeight - 16}px`, "important");
+        portalDropdown.style.setProperty(
+          "max-height",
+          `${viewportHeight - 16}px`,
+          "important",
+        );
       };
       syncMobileViewportHeight();
 
@@ -1270,8 +1327,14 @@ export class ReaderView extends ItemView {
         visualViewport.addEventListener("resize", syncMobileViewportHeight);
         visualViewport.addEventListener("scroll", syncMobileViewportHeight);
         this.tagsDropdownViewportCleanup = () => {
-          visualViewport.removeEventListener("resize", syncMobileViewportHeight);
-          visualViewport.removeEventListener("scroll", syncMobileViewportHeight);
+          visualViewport.removeEventListener(
+            "resize",
+            syncMobileViewportHeight,
+          );
+          visualViewport.removeEventListener(
+            "scroll",
+            syncMobileViewportHeight,
+          );
         };
       } else {
         targetWindow.addEventListener("resize", syncMobileViewportHeight);

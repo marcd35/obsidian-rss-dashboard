@@ -17,6 +17,7 @@ import {
   Folder,
 } from "../types/types";
 import type {
+  AiSummarySettingsUpdatedEventPayload,
   FiltersUpdatedEventPayload,
   default as RssDashboardPlugin,
 } from "../../main";
@@ -30,6 +31,8 @@ import { KeywordFilterService } from "../services/keyword-filter-service";
 import { AiSummaryService } from "../services/ai-summary-service";
 
 export const RSS_DASHBOARD_VIEW_TYPE = "rss-dashboard-view";
+const AI_SUMMARY_SETTINGS_UPDATED_EVENT =
+  "rss-dashboard:ai-summary-settings-updated";
 
 export class RssDashboardView extends ItemView {
   private settings: RssDashboardSettings;
@@ -152,6 +155,22 @@ export class RssDashboardView extends ItemView {
         "rss-dashboard:filters-updated",
         (payload: FiltersUpdatedEventPayload) => {
           this.syncCurrentFeedReference();
+          this.render();
+        },
+      ) as never,
+    );
+
+    this.registerEvent(
+      (
+        this.app.workspace as unknown as {
+          on: (
+            name: string,
+            callback: (payload: AiSummarySettingsUpdatedEventPayload) => void,
+          ) => unknown;
+        }
+      ).on(
+        AI_SUMMARY_SETTINGS_UPDATED_EVENT,
+        (_payload: AiSummarySettingsUpdatedEventPayload) => {
           this.render();
         },
       ) as never,

@@ -44,6 +44,14 @@ export interface FiltersUpdatedEventPayload {
   timestamp: number;
 }
 
+export interface AiSummarySettingsUpdatedEventPayload {
+  previousEnabled: boolean;
+  enabled: boolean;
+}
+
+export const AI_SUMMARY_SETTINGS_UPDATED_EVENT =
+  "rss-dashboard:ai-summary-settings-updated";
+
 export default class RssDashboardPlugin extends Plugin {
   settings!: RssDashboardSettings;
   feedParser!: FeedParser;
@@ -52,6 +60,7 @@ export default class RssDashboardPlugin extends Plugin {
   public backgroundImportQueue: FeedMetadata[] = [];
   public settingTab: RssDashboardSettingTab | null = null;
   private isBackgroundImporting = false;
+  private lastSavedAiSummaryEnabled = DEFAULT_SETTINGS.aiSummary.enabled;
 
   public async getActiveDashboardView(): Promise<RssDashboardView | null> {
     const leaves = this.app.workspace.getLeavesOfType(RSS_DASHBOARD_VIEW_TYPE);
@@ -84,6 +93,12 @@ export default class RssDashboardPlugin extends Plugin {
     this.app.workspace.trigger("rss-dashboard:filters-updated", payload);
   }
 
+  public notifyAiSummarySettingsUpdated(
+    payload: AiSummarySettingsUpdatedEventPayload,
+  ): void {
+    this.app.workspace.trigger(AI_SUMMARY_SETTINGS_UPDATED_EVENT, payload);
+  }
+
   public async getActiveDiscoverView(): Promise<DiscoverView | null> {
     const leaves = this.app.workspace.getLeavesOfType(RSS_DISCOVER_VIEW_TYPE);
     for (const leaf of leaves) {
@@ -112,7 +127,7 @@ export default class RssDashboardPlugin extends Plugin {
     return null;
   }
 
-    public async openTagsSettings(): Promise<void> {
+  public async openTagsSettings(): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment
     const setting = (this.app as any).setting;
     if (setting) {
@@ -121,7 +136,7 @@ export default class RssDashboardPlugin extends Plugin {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
       setting.openTabById(this.manifest.id);
       if (this.settingTab) {
-        this.settingTab.activateTab('Tags');
+        this.settingTab.activateTab("Tags");
       }
     }
   }
@@ -139,7 +154,6 @@ export default class RssDashboardPlugin extends Plugin {
       }
     }
   }
-
 
   async onload() {
     await this.loadSettings();
@@ -962,7 +976,7 @@ export default class RssDashboardPlugin extends Plugin {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(opmlContent);
         new Notice(
-          "Feed list copied to clipboard. Paste into your reader to import"
+          "Feed list copied to clipboard. Paste into your reader to import",
         );
         return;
       }
@@ -975,7 +989,9 @@ export default class RssDashboardPlugin extends Plugin {
       const blob = new Blob([opmlContent], { type: "text/xml" });
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
-      new Notice("Feed list opened in a new window. Save to download and import");
+      new Notice(
+        "Feed list opened in a new window. Save to download and import",
+      );
       // Note: Don't revoke the URL immediately - the new window needs it
       // It will be revoked when the window closes or navigates away
     } catch (error) {
@@ -1483,6 +1499,9 @@ export default class RssDashboardPlugin extends Plugin {
           rules: [],
         };
         return;
+
+      this.lastSavedAiSummaryEnabled =
+        this.settings.aiSummary?.enabled ?? DEFAULT_SETTINGS.aiSummary.enabled;
       }
 
       if (feed.filters.overrideGlobalFilters === undefined) {
@@ -1498,7 +1517,20 @@ export default class RssDashboardPlugin extends Plugin {
   }
 
   async saveSettings() {
+    const previousEnabled = this.lastSavedAiSummaryEnabled;
+    const nextEnabled =
+      this.settings.aiSummary?.enabled ?? DEFAULT_SETTINGS.aiSummary.enabled;
+
     await this.saveData(this.settings);
+
+    this.lastSavedAiSummaryEnabled = nextEnabled;
+
+    if (previousEnabled !== nextEnabled) {
+      this.notifyAiSummarySettingsUpdated({
+        previousEnabled,
+        enabled: nextEnabled,
+      });
+    }
   }
 
   onunload() {}
@@ -1564,4 +1596,3 @@ export default class RssDashboardPlugin extends Plugin {
     return allArticles;
   }
 }
-
