@@ -163,6 +163,12 @@ Want to influence the next release? </h3>  : Join our [Discord server](https://d
 3. Use the filtering and sorting options to find specific articles
 4. Export your feed list using OPML for backup
 
+## Development Workflow
+
+For contributor quality gates (Git hooks, unit tests, and build checks), see:
+
+- [docs/development/git-and-testing-workflow.md](docs/development/git-and-testing-workflow.md)
+
 ## Troubleshooting
 
 ### Common Issues

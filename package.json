@@ -9,6 +9,8 @@
     "build": "eslint . --ext .ts && tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
     "lint": "eslint . --ext .ts",
     "test:unit": "vitest run --config vitest.config.mjs",
+    "hooks:install": "node scripts/setup-git-hooks.mjs",
+    "prepare": "npm run hooks:install",
     "version": "node version-bump.mjs && git add manifest.json versions.json"
   },
   "keywords": [],
