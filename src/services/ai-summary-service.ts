@@ -1,9 +1,5 @@
 import { requestUrl } from "obsidian";
-import {
-  AiSummaryProvider,
-  AiSummarySettings,
-  FeedItem,
-} from "../types/types";
+import { AiSummaryProvider, AiSummarySettings, FeedItem } from "../types/types";
 
 export interface AiSummaryResult {
   summary: string;
@@ -54,11 +50,9 @@ export class AiSummaryService {
         );
       }
       case "kilo": {
-        // Kilo Gateway is OpenAI-compatible and routes by model prefix.
-        return this.requestOpenAiStyle(
-          "https://api.kilo.ai/api/gateway/chat/completions",
-          apiKey,
-          prompt,
+        // Temporarily disabled until Kilo integration hardening is completed.
+        throw new Error(
+          "Kilo provider is temporarily disabled. Select OpenRouter, OpenAI, or Claude.",
         );
       }
       case "claude": {
@@ -213,8 +207,15 @@ export class AiSummaryService {
     // Prefer richer content first, then fallback to existing summaries/description.
     // This keeps the feature resilient when full-content extraction is unavailable.
     const raw =
-      article.content || article.aiSummaryText || article.summary || article.description || "";
-    const stripped = raw.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      article.content ||
+      article.aiSummaryText ||
+      article.summary ||
+      article.description ||
+      "";
+    const stripped = raw
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
     if (stripped.length <= this.settings.maxInputChars) {
       return stripped;
     }

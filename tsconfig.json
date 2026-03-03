@@ -13,20 +13,11 @@
     "strictNullChecks": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,
-    "lib": [
-      "DOM",
-      "ES5",
-      "ES6",
-      "ES7"
-    ],
+    "lib": ["DOM", "ES5", "ES6", "ES7"],
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
     "strict": true
   },
-  "include": [
-    "**/*.ts"
-  ],
-  "exclude": [
-    "test_files/**"
-  ]
+  "include": ["**/*.ts"],
+  "exclude": ["test_files/**"]
 }

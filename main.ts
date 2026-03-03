@@ -1307,6 +1307,7 @@ export default class RssDashboardPlugin extends Plugin {
           this.settings.aiSummary,
         );
       }
+      this.normalizeAiSummaryProvider();
 
       // Ensure display settings are properly initialized
       if (!this.settings.display) {
@@ -1417,6 +1418,7 @@ export default class RssDashboardPlugin extends Plugin {
         this.settings.aiSummary,
       );
     }
+    this.normalizeAiSummaryProvider();
 
     // Migrate display settings
     if (!this.settings.display) {
@@ -1530,6 +1532,13 @@ export default class RssDashboardPlugin extends Plugin {
         previousEnabled,
         enabled: nextEnabled,
       });
+    }
+  }
+
+  private normalizeAiSummaryProvider(): void {
+    // Kilo is temporarily disabled; auto-fallback avoids invalid dropdown state.
+    if (this.settings.aiSummary?.provider === "kilo") {
+      this.settings.aiSummary.provider = "openrouter";
     }
   }
 

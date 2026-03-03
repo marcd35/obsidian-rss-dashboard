@@ -232,11 +232,7 @@ export interface FeedFilterSettings {
   rules: KeywordFilterRule[];
 }
 
-export type AiSummaryProvider =
-  | "openrouter"
-  | "openai"
-  | "claude"
-  | "kilo";
+export type AiSummaryProvider = "openrouter" | "openai" | "claude" | "kilo";
 
 export interface AiSummarySettings {
   enabled: boolean;

@@ -344,7 +344,9 @@ export class ArticleList {
     const newTime = new Date(article.pubDate).getTime();
     for (let i = 0; i < this.articles.length; i++) {
       const existingTime = new Date(this.articles[i].pubDate).getTime();
-      if (sortOrder === "newest" ? newTime > existingTime : newTime < existingTime) {
+      if (
+        sortOrder === "newest" ? newTime > existingTime : newTime < existingTime
+      ) {
         return i;
       }
     }
@@ -1965,7 +1967,10 @@ export class ArticleList {
     // UI guardrails:
     // - hidden when feature disabled
     // - single-flight via existing "saving" state class to avoid duplicate calls
-    if (!this.settings.aiSummary?.enabled || !this.callbacks.onArticleSummarize) {
+    if (
+      !this.settings.aiSummary?.enabled ||
+      !this.callbacks.onArticleSummarize
+    ) {
       return;
     }
 
@@ -2240,10 +2245,7 @@ export class ArticleList {
             const highlightService = new HighlightService(
               this.settings.highlights,
             );
-            highlightService.setHighlightedText(
-              summaryOverlay,
-              displaySummary,
-            );
+            highlightService.setHighlightedText(summaryOverlay, displaySummary);
           } else {
             summaryOverlay.textContent = displaySummary;
           }
@@ -2688,79 +2690,79 @@ export class ArticleList {
     updateTagSeparatorVisibility();
 
     if (!isMobile) {
-    const inlineAddRow = portalDropdown.createDiv({
-      cls: "rss-dashboard-tag-inline-add-row",
-    });
+      const inlineAddRow = portalDropdown.createDiv({
+        cls: "rss-dashboard-tag-inline-add-row",
+      });
 
-    const colorInput = inlineAddRow.createEl("input", {
-      attr: {
-        type: "color",
-        value: "#3498db",
-      },
-      cls: "rss-dashboard-tag-inline-color",
-    });
+      const colorInput = inlineAddRow.createEl("input", {
+        attr: {
+          type: "color",
+          value: "#3498db",
+        },
+        cls: "rss-dashboard-tag-inline-color",
+      });
 
-    const nameInput = inlineAddRow.createEl("input", {
-      attr: {
-        type: "text",
-        placeholder: "Add new tag...",
-        autocomplete: "off",
-      },
-      cls: "rss-dashboard-tag-inline-input",
-    });
-    nameInput.spellcheck = false;
+      const nameInput = inlineAddRow.createEl("input", {
+        attr: {
+          type: "text",
+          placeholder: "Add new tag...",
+          autocomplete: "off",
+        },
+        cls: "rss-dashboard-tag-inline-input",
+      });
+      nameInput.spellcheck = false;
 
-    const addButton = inlineAddRow.createEl("button", {
-      cls: "rss-dashboard-tag-inline-button",
-      attr: { title: "Add tag" },
-    });
-    setIcon(addButton, "plus");
+      const addButton = inlineAddRow.createEl("button", {
+        cls: "rss-dashboard-tag-inline-button",
+        attr: { title: "Add tag" },
+      });
+      setIcon(addButton, "plus");
 
-    const submitInlineTag = () => {
-      const tagName = nameInput.value.trim();
-      const tagColor = colorInput.value;
+      const submitInlineTag = () => {
+        const tagName = nameInput.value.trim();
+        const tagColor = colorInput.value;
 
-      if (!tagName) {
-        new Notice("Please enter a tag name!");
-        return;
-      }
+        if (!tagName) {
+          new Notice("Please enter a tag name!");
+          return;
+        }
 
-      if (
-        this.settings.availableTags.some(
-          (tag) => tag.name.toLowerCase() === tagName.toLowerCase(),
-        )
-      ) {
-        new Notice("A tag with this name already exists!");
-        return;
-      }
+        if (
+          this.settings.availableTags.some(
+            (tag) => tag.name.toLowerCase() === tagName.toLowerCase(),
+          )
+        ) {
+          new Notice("A tag with this name already exists!");
+          return;
+        }
 
-      const newTag: Tag = {
-        name: tagName,
-        color: tagColor,
+        const newTag: Tag = {
+          name: tagName,
+          color: tagColor,
+        };
+
+        this.settings.availableTags.push(newTag);
+        this.persistSettings();
+        onTagChange(newTag, true);
+        appendTagItem(newTag, true);
+
+        nameInput.value = "";
+        requestAnimationFrame(() => nameInput.focus());
+        new Notice(`Tag "${tagName}" added`);
       };
 
-      this.settings.availableTags.push(newTag);
-      this.persistSettings();
-      onTagChange(newTag, true);
-      appendTagItem(newTag, true);
-
-      nameInput.value = "";
-      requestAnimationFrame(() => nameInput.focus());
-      new Notice(`Tag "${tagName}" added`);
-    };
-
-    addButton.addEventListener("click", (e) => {
-      e.stopPropagation();
-      submitInlineTag();
-    });
-
-    nameInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
+      addButton.addEventListener("click", (e) => {
         e.stopPropagation();
         submitInlineTag();
-      }
-    });
+      });
+
+      nameInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.stopPropagation();
+          submitInlineTag();
+        }
+      });
     } // end !isMobile
 
     targetBody.appendChild(portalDropdown);
@@ -2791,7 +2793,11 @@ export class ArticleList {
       const syncMobileViewportHeight = () => {
         const vvp = targetWindow.visualViewport;
         const viewportHeight = vvp?.height ?? targetWindow.innerHeight;
-        portalDropdown.style.setProperty("max-height", `${viewportHeight - 16}px`, "important");
+        portalDropdown.style.setProperty(
+          "max-height",
+          `${viewportHeight - 16}px`,
+          "important",
+        );
       };
       syncMobileViewportHeight();
 

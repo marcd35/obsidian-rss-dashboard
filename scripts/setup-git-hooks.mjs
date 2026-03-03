@@ -18,7 +18,9 @@ if (insideRepo.status !== 0 || insideRepo.stdout.trim() !== "true") {
 
 const setHooksPath = run("git", ["config", "core.hooksPath", ".githooks"]);
 if (setHooksPath.status !== 0) {
-  proc.stderr.write(setHooksPath.stderr || "[hooks] Failed to set core.hooksPath.\n");
+  proc.stderr.write(
+    setHooksPath.stderr || "[hooks] Failed to set core.hooksPath.\n",
+  );
   proc.exit(setHooksPath.status ?? 1);
 }
 

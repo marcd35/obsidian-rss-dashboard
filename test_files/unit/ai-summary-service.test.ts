@@ -36,14 +36,12 @@ describe("AiSummaryService", () => {
   });
 
   it("returns normalized summary for OpenAI-style providers", async () => {
-    const requestUrlMock = vi
-      .spyOn(obsidian, "requestUrl")
-      .mockResolvedValue({
-        status: 200,
-        text: JSON.stringify({
-          choices: [{ message: { content: "Short summary" } }],
-        }),
-      } as unknown as Awaited<ReturnType<typeof obsidian.requestUrl>>);
+    const requestUrlMock = vi.spyOn(obsidian, "requestUrl").mockResolvedValue({
+      status: 200,
+      text: JSON.stringify({
+        choices: [{ message: { content: "Short summary" } }],
+      }),
+    } as unknown as Awaited<ReturnType<typeof obsidian.requestUrl>>);
 
     const service = new AiSummaryService({
       ...baseSettings,
@@ -104,14 +102,12 @@ describe("AiSummaryService", () => {
   });
 
   it("truncates long prompt content by configured maxInputChars", async () => {
-    const requestUrlMock = vi
-      .spyOn(obsidian, "requestUrl")
-      .mockResolvedValue({
-        status: 200,
-        text: JSON.stringify({
-          choices: [{ message: { content: "ok" } }],
-        }),
-      } as unknown as Awaited<ReturnType<typeof obsidian.requestUrl>>);
+    const requestUrlMock = vi.spyOn(obsidian, "requestUrl").mockResolvedValue({
+      status: 200,
+      text: JSON.stringify({
+        choices: [{ message: { content: "ok" } }],
+      }),
+    } as unknown as Awaited<ReturnType<typeof obsidian.requestUrl>>);
 
     const service = new AiSummaryService({
       ...baseSettings,
