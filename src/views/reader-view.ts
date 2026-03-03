@@ -1053,7 +1053,7 @@ export class ReaderView extends ItemView {
         persistUpdates.aiSummaryProvider = result.provider;
         persistUpdates.aiSummaryModel = result.model;
       }
-      this.onArticleUpdate(this.currentItem, persistUpdates, true);
+      this.onArticleUpdate(this.currentItem, persistUpdates, false);
       new Notice(
         promptTemplateOverride ? "Summary regenerated." : "Summary generated.",
       );
