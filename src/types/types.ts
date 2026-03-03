@@ -232,13 +232,22 @@ export interface FeedFilterSettings {
   rules: KeywordFilterRule[];
 }
 
-export type AiSummaryProvider = "openrouter" | "openai" | "claude" | "kilo";
+export type AiSummaryProvider =
+  | "openrouter"
+  | "openai"
+  | "claude"
+  | "kilo"
+  | "local";
+
+export type AiSummaryLocalMode = "ollama" | "openai-compatible";
 
 export interface AiSummarySettings {
   enabled: boolean;
   provider: AiSummaryProvider;
   model: string;
   apiKey: string;
+  localMode: AiSummaryLocalMode;
+  localBaseUrl: string;
   promptTemplate: string;
   maxInputChars: number;
   maxOutputTokens: number;
@@ -405,6 +414,8 @@ guid: "{{guid}}"
     provider: "openrouter",
     model: "openai/gpt-5.2",
     apiKey: "",
+    localMode: "ollama",
+    localBaseUrl: "http://localhost:11434",
     promptTemplate:
       "Summarize this article in 5 concise bullet points. Focus on key takeaways, claims, and practical implications.\n\nTitle: {{title}}\nFeed: {{feedTitle}}\nURL: {{link}}\nPublished: {{pubDate}}\n\nArticle:\n{{content}}",
     maxInputChars: 12000,

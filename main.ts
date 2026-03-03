@@ -1502,8 +1502,9 @@ export default class RssDashboardPlugin extends Plugin {
         };
         return;
 
-      this.lastSavedAiSummaryEnabled =
-        this.settings.aiSummary?.enabled ?? DEFAULT_SETTINGS.aiSummary.enabled;
+        this.lastSavedAiSummaryEnabled =
+          this.settings.aiSummary?.enabled ??
+          DEFAULT_SETTINGS.aiSummary.enabled;
       }
 
       if (feed.filters.overrideGlobalFilters === undefined) {
@@ -1536,9 +1537,38 @@ export default class RssDashboardPlugin extends Plugin {
   }
 
   private normalizeAiSummaryProvider(): void {
+    const aiSummary = this.settings.aiSummary;
+
+    if (!aiSummary) {
+      return;
+    }
+
+    const supportedProviders = new Set([
+      "openrouter",
+      "openai",
+      "claude",
+      "kilo",
+      "local",
+    ]);
+
+    if (!supportedProviders.has(aiSummary.provider)) {
+      aiSummary.provider = DEFAULT_SETTINGS.aiSummary.provider;
+    }
+
     // Kilo is temporarily disabled; auto-fallback avoids invalid dropdown state.
-    if (this.settings.aiSummary?.provider === "kilo") {
-      this.settings.aiSummary.provider = "openrouter";
+    if (aiSummary.provider === "kilo") {
+      aiSummary.provider = "openrouter";
+    }
+
+    if (
+      aiSummary.localMode !== "ollama" &&
+      aiSummary.localMode !== "openai-compatible"
+    ) {
+      aiSummary.localMode = DEFAULT_SETTINGS.aiSummary.localMode;
+    }
+
+    if (typeof aiSummary.localBaseUrl !== "string") {
+      aiSummary.localBaseUrl = DEFAULT_SETTINGS.aiSummary.localBaseUrl;
     }
   }
 

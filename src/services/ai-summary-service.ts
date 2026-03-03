@@ -1,5 +1,9 @@
 import { requestUrl } from "obsidian";
-import { AiSummaryProvider, AiSummarySettings, FeedItem } from "../types/types";
+import {
+  AiSummaryProvider,
+  AiSummarySettings,
+  FeedItem,
+} from "../types/types";
 
 export interface AiSummaryResult {
   summary: string;
@@ -16,6 +20,10 @@ export interface AiSummaryResult {
 export class AiSummaryService {
   constructor(private settings: AiSummarySettings) {}
 
+  private isLocalProvider(): boolean {
+    return this.settings.provider === "local";
+  }
+
   public async summarizeArticle(
     article: FeedItem,
     promptTemplateOverride?: string,
@@ -25,7 +33,7 @@ export class AiSummaryService {
     }
 
     const apiKey = this.settings.apiKey?.trim();
-    if (!apiKey) {
+    if (!this.isLocalProvider() && !apiKey) {
       throw new Error("Missing API key. Configure it in AI settings.");
     }
 
@@ -62,6 +70,9 @@ export class AiSummaryService {
         // Anthropic uses a different request/response schema than chat completions.
         return this.requestClaudeStyle(apiKey, prompt);
       }
+      case "local": {
+        return this.requestLocalStyle(prompt);
+      }
       default:
         throw new Error("Unsupported AI provider configured.");
     }
@@ -87,19 +98,24 @@ export class AiSummaryService {
 
   private async requestOpenAiStyle(
     endpoint: string,
-    apiKey: string,
+    apiKey: string | null,
     prompt: string,
     extraHeaders: Record<string, string> = {},
   ): Promise<AiSummaryResult> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...extraHeaders,
+    };
+
+    if (apiKey) {
+      headers.Authorization = `Bearer ${apiKey}`;
+    }
+
     const response = await requestUrl({
       url: endpoint,
       method: "POST",
       throw: false,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        ...extraHeaders,
-      },
+      headers,
       body: JSON.stringify({
         model: this.settings.model,
         messages: [
@@ -133,6 +149,62 @@ export class AiSummaryService {
     const summary = payload.choices?.[0]?.message?.content?.trim();
     if (!summary) {
       throw new Error("Provider returned an empty summary.");
+    }
+
+    return {
+      summary,
+      provider: this.settings.provider,
+      model: this.settings.model,
+    };
+  }
+
+  private async requestLocalStyle(prompt: string): Promise<AiSummaryResult> {
+    const baseUrl = this.settings.localBaseUrl?.trim();
+    if (!baseUrl) {
+      throw new Error("Missing local base URL. Configure it in AI settings.");
+    }
+
+    if (this.settings.localMode === "openai-compatible") {
+      const endpoint = `${baseUrl.replace(/\/+$/, "")}/v1/chat/completions`;
+      return this.requestOpenAiStyle(endpoint, null, prompt);
+    }
+
+    if (this.settings.localMode !== "ollama") {
+      throw new Error("Unsupported local model mode configured.");
+    }
+
+    const endpoint = `${baseUrl.replace(/\/+$/, "")}/api/generate`;
+    const response = await requestUrl({
+      url: endpoint,
+      method: "POST",
+      throw: false,
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: this.settings.model,
+        prompt,
+        stream: false,
+        options: {
+          temperature: 0.2,
+          num_predict: this.settings.maxOutputTokens,
+        },
+      }),
+    });
+
+    if (response.status >= 400) {
+      throw new Error(`Provider request failed (${response.status}).`);
+    }
+
+    const payload = JSON.parse(response.text) as {
+      response?: string;
+    };
+
+    const summary = payload.response?.trim();
+    if (!summary) {
+      throw new Error(
+        "Local provider returned no summary in Ollama format. If you are using LM Studio or another OpenAI-compatible server, switch Local mode to openai-compatible.",
+      );
     }
 
     return {

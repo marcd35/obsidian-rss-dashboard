@@ -1668,13 +1668,16 @@ export class RssDashboardSettingTab extends PluginSettingTab {
           .addOption("openrouter", "openrouter")
           .addOption("openai", "openai")
           .addOption("claude", "claude (anthropic)")
+          .addOption("local", "local")
           .setValue(this.plugin.settings.aiSummary.provider)
           .onChange(async (value) => {
             this.plugin.settings.aiSummary.provider = value as
               | "openrouter"
               | "openai"
-              | "claude";
+              | "claude"
+              | "local";
             await this.plugin.saveSettings();
+            this.display();
           }),
       );
 
@@ -1693,20 +1696,53 @@ export class RssDashboardSettingTab extends PluginSettingTab {
           }),
       );
 
-    new Setting(containerEl)
-      .setName("Api key")
-      .setDesc(
-        "Stored in plugin settings. For stronger security, migrate to Obsidian SecretStorage in a follow-up.",
-      )
-      .addText((text) =>
-        text
-          .setPlaceholder("Paste API key")
-          .setValue(this.plugin.settings.aiSummary.apiKey)
-          .onChange(async (value) => {
-            this.plugin.settings.aiSummary.apiKey = value.trim();
-            await this.plugin.saveSettings();
-          }),
-      );
+    if (this.plugin.settings.aiSummary.provider === "local") {
+      new Setting(containerEl)
+        .setName("Local mode")
+        .setDesc(
+          "Choose local runtime format (Ollama uses /api/generate; LM Studio uses openai-compatible /v1/chat/completions)",
+        )
+        .addDropdown((dropdown) =>
+          dropdown
+            .addOption("ollama", "ollama")
+            .addOption("openai-compatible", "openai-compatible")
+            .setValue(this.plugin.settings.aiSummary.localMode)
+            .onChange(async (value) => {
+              this.plugin.settings.aiSummary.localMode = value as
+                | "ollama"
+                | "openai-compatible";
+              await this.plugin.saveSettings();
+            }),
+        );
+
+      new Setting(containerEl)
+        .setName("Local base URL")
+        .setDesc("Example: http://localhost:11434 or http://localhost:1234")
+        .addText((text) =>
+          text
+            .setPlaceholder("http://localhost:11434")
+            .setValue(this.plugin.settings.aiSummary.localBaseUrl)
+            .onChange(async (value) => {
+              this.plugin.settings.aiSummary.localBaseUrl = value.trim();
+              await this.plugin.saveSettings();
+            }),
+        );
+    } else {
+      new Setting(containerEl)
+        .setName("Api key")
+        .setDesc(
+          "Stored in plugin settings. For stronger security, migrate to Obsidian SecretStorage in a follow-up.",
+        )
+        .addText((text) =>
+          text
+            .setPlaceholder("Paste API key")
+            .setValue(this.plugin.settings.aiSummary.apiKey)
+            .onChange(async (value) => {
+              this.plugin.settings.aiSummary.apiKey = value.trim();
+              await this.plugin.saveSettings();
+            }),
+        );
+    }
 
     let aiPromptTemplateInputEl: HTMLTextAreaElement | null = null;
 

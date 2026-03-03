@@ -9,6 +9,8 @@ const baseSettings: AiSummarySettings = {
   provider: "openrouter",
   model: "openai/gpt-5.2",
   apiKey: "test-key",
+  localMode: "ollama",
+  localBaseUrl: "http://localhost:11434",
   promptTemplate:
     "Title: {{title}}\nFeed: {{feedTitle}}\nURL: {{link}}\nDate: {{pubDate}}\nBody: {{content}}",
   maxInputChars: 200,
@@ -81,6 +83,99 @@ describe("AiSummaryService", () => {
       "Missing API key",
     );
     expect(requestUrlSpy).not.toHaveBeenCalled();
+  });
+
+  it("skips API key requirement for local ollama provider", async () => {
+    const requestUrlMock = vi.spyOn(obsidian, "requestUrl").mockResolvedValue({
+      status: 200,
+      text: JSON.stringify({
+        response: "Local summary",
+      }),
+    } as unknown as Awaited<ReturnType<typeof obsidian.requestUrl>>);
+
+    const service = new AiSummaryService({
+      ...baseSettings,
+      provider: "local",
+      apiKey: "",
+      localMode: "ollama",
+      localBaseUrl: "http://localhost:11434",
+      model: "llama3.2",
+    });
+
+    const result = await service.summarizeArticle(article);
+
+    expect(result.summary).toBe("Local summary");
+    expect(result.provider).toBe("local");
+
+    const callArgs = requestUrlMock.mock.calls[0][0] as { url: string };
+    expect(callArgs.url).toBe("http://localhost:11434/api/generate");
+  });
+
+  it("uses local OpenAI-compatible endpoint without auth header", async () => {
+    const requestUrlMock = vi.spyOn(obsidian, "requestUrl").mockResolvedValue({
+      status: 200,
+      text: JSON.stringify({
+        choices: [{ message: { content: "Local OAI summary" } }],
+      }),
+    } as unknown as Awaited<ReturnType<typeof obsidian.requestUrl>>);
+
+    const service = new AiSummaryService({
+      ...baseSettings,
+      provider: "local",
+      apiKey: "",
+      localMode: "openai-compatible",
+      localBaseUrl: "http://localhost:1234/",
+      model: "local-model",
+    });
+
+    const result = await service.summarizeArticle(article);
+
+    expect(result.summary).toBe("Local OAI summary");
+
+    const callArgs = requestUrlMock.mock.calls[0][0] as {
+      url: string;
+      headers: Record<string, string>;
+    };
+    expect(callArgs.url).toBe("http://localhost:1234/v1/chat/completions");
+    expect(callArgs.headers.Authorization).toBeUndefined();
+  });
+
+  it("throws when local base URL is missing", async () => {
+    const requestUrlSpy = vi.spyOn(obsidian, "requestUrl");
+    const service = new AiSummaryService({
+      ...baseSettings,
+      provider: "local",
+      apiKey: "",
+      localMode: "ollama",
+      localBaseUrl: "",
+    });
+
+    await expect(service.summarizeArticle(article)).rejects.toThrow(
+      "Missing local base URL",
+    );
+    expect(requestUrlSpy).not.toHaveBeenCalled();
+  });
+
+  it("surfaces actionable message when ollama mode gets non-ollama payload", async () => {
+    vi.spyOn(obsidian, "requestUrl").mockResolvedValue({
+      status: 200,
+      text: JSON.stringify({
+        message: "Unexpected endpoint or method",
+      }),
+    } as unknown as Awaited<ReturnType<typeof obsidian.requestUrl>>);
+
+    const service = new AiSummaryService({
+      ...baseSettings,
+      provider: "local",
+      apiKey: "",
+      localMode: "ollama",
+      localBaseUrl: "http://127.0.0.1:1234",
+      model: "google/gemma-3-4b",
+    });
+
+    await expect(service.summarizeArticle(article)).rejects.toThrow(
+      "switch Local mode to openai-compatible",
+    );
   });
 
   it("uses Claude response parser for claude provider", async () => {
