@@ -115,6 +115,54 @@
   color: var(--text-muted);
 }
 
+.rss-reader-ai-summary-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rss-reader-ai-summary-title-row h4 {
+  margin: 0;
+}
+
+.rss-reader-ai-summary-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rss-reader-ai-summary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.rss-reader-ai-summary-action:hover {
+  background-color: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.rss-reader-ai-summary-action.is-danger:hover {
+  color: var(--text-error, #d64a4a);
+}
+
+.rss-reader-ai-summary-body {
+  margin-top: 8px;
+}
+
+.rss-reader-ai-summary.is-collapsed .rss-reader-ai-summary-body {
+  display: none;
+}
+
 .rss-reader-ai-summary p {
   margin: 0;
   line-height: 1.55;

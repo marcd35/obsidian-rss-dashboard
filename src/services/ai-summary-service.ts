@@ -16,7 +16,10 @@ export interface AiSummaryResult {
 export class AiSummaryService {
   constructor(private settings: AiSummarySettings) {}
 
-  public async summarizeArticle(article: FeedItem): Promise<AiSummaryResult> {
+  public async summarizeArticle(
+    article: FeedItem,
+    promptTemplateOverride?: string,
+  ): Promise<AiSummaryResult> {
     if (!this.settings.enabled) {
       throw new Error("AI summaries are disabled in settings.");
     }
@@ -26,7 +29,7 @@ export class AiSummaryService {
       throw new Error("Missing API key. Configure it in AI settings.");
     }
 
-    const prompt = this.buildPrompt(article);
+    const prompt = this.buildPrompt(article, promptTemplateOverride);
 
     switch (this.settings.provider) {
       case "openrouter": {
@@ -191,11 +194,15 @@ export class AiSummaryService {
     };
   }
 
-  private buildPrompt(article: FeedItem): string {
+  private buildPrompt(
+    article: FeedItem,
+    promptTemplateOverride?: string,
+  ): string {
     // Prompt template placeholders are intentionally simple string replacements.
     // Keep placeholders aligned with settings-tab description text.
     const content = this.getPromptContent(article);
-    return this.settings.promptTemplate
+    const template = promptTemplateOverride ?? this.settings.promptTemplate;
+    return template
       .replace("{{title}}", article.title || "")
       .replace("{{feedTitle}}", article.feedTitle || "")
       .replace("{{link}}", article.link || "")

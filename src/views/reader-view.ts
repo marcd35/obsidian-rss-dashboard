@@ -26,6 +26,7 @@ import TurndownService from "turndown";
 import { ensureUtf8Meta } from "../utils/platform-utils";
 import { RSS_DASHBOARD_VIEW_TYPE } from "./dashboard-view";
 import { AiSummaryService } from "../services/ai-summary-service";
+import { EditAiSummaryModal } from "../modals/edit-ai-summary-modal";
 import type { AiSummarySettingsUpdatedEventPayload } from "../../main";
 
 export const RSS_READER_VIEW_TYPE = "rss-reader-view";
@@ -61,6 +62,7 @@ export class ReaderView extends ItemView {
     null;
   private tagsDropdownDocument: Document | null = null;
   private tagsDropdownViewportCleanup: (() => void) | null = null;
+  private isAiSummaryCollapsed = false;
 
   public setReturnLeaf(leaf: WorkspaceLeaf | null): void {
     this.returnLeaf = leaf;
@@ -455,10 +457,14 @@ export class ReaderView extends ItemView {
     item: FeedItem,
     relatedItems: FeedItem[] = [],
   ): Promise<void> {
+    const previousGuid = this.currentItem?.guid;
     if (this.readingContainer) {
       this.readingContainer.empty();
     }
     this.currentItem = item;
+    if (previousGuid !== item.guid) {
+      this.isAiSummaryCollapsed = false;
+    }
     this.relatedItems = relatedItems;
 
     if (this.titleElement) {
@@ -668,15 +674,7 @@ export class ReaderView extends ItemView {
       }
     }
 
-    if (item.aiSummaryText) {
-      const aiSummaryContainer = this.readingContainer.createDiv({
-        cls: "rss-reader-ai-summary",
-      });
-      aiSummaryContainer.createEl("h4", { text: "AI summary" });
-      aiSummaryContainer.createEl("p", {
-        text: item.aiSummaryText,
-      });
-    }
+    this.renderAiSummarySection(item);
 
     if (
       this.settings.display.showCoverImage &&
@@ -1006,6 +1004,14 @@ export class ReaderView extends ItemView {
   }
 
   private async summarizeCurrentItem(button: HTMLElement): Promise<void> {
+    await this.generateSummary(button);
+  }
+
+  private async generateSummary(
+    button?: HTMLElement,
+    promptTemplateOverride?: string,
+    rethrowOnError = false,
+  ): Promise<void> {
     if (!this.currentItem) {
       return;
     }
@@ -1015,16 +1021,19 @@ export class ReaderView extends ItemView {
       return;
     }
 
-    if (button.hasClass("is-loading")) {
+    if (button?.hasClass("is-loading")) {
       return;
     }
 
-    button.addClass("is-loading");
-    button.setAttr("title", "Summarizing...");
+    button?.addClass("is-loading");
+    button?.setAttr("title", "Summarizing...");
 
     try {
       const service = new AiSummaryService(this.settings.aiSummary);
-      const result = await service.summarizeArticle(this.currentItem);
+      const result = await service.summarizeArticle(
+        this.currentItem,
+        promptTemplateOverride,
+      );
       const updates: Partial<FeedItem> = {
         aiSummaryText: result.summary,
         aiSummaryGeneratedAt: Date.now(),
@@ -1034,7 +1043,9 @@ export class ReaderView extends ItemView {
       };
       Object.assign(this.currentItem, updates);
       this.onArticleUpdate(this.currentItem, updates, true);
-      new Notice("Summary generated.");
+      new Notice(
+        promptTemplateOverride ? "Summary regenerated." : "Summary generated.",
+      );
       await this.displayItem(this.currentItem, this.relatedItems);
     } catch (error) {
       const message =
@@ -1046,11 +1057,121 @@ export class ReaderView extends ItemView {
         Object.assign(this.currentItem, updates);
         this.onArticleUpdate(this.currentItem, updates, false);
       }
+      if (rethrowOnError) {
+        throw new Error(message);
+      }
       new Notice(message);
     } finally {
-      button.removeClass("is-loading");
-      button.setAttr("title", "Summarize with AI");
+      button?.removeClass("is-loading");
+      button?.setAttr("title", "Summarize with AI");
     }
+  }
+
+  private renderAiSummarySection(item: FeedItem): void {
+    if (!item.aiSummaryText) {
+      return;
+    }
+
+    const aiSummaryContainer = this.readingContainer.createDiv({
+      cls: "rss-reader-ai-summary",
+    });
+    aiSummaryContainer.toggleClass("is-collapsed", this.isAiSummaryCollapsed);
+
+    const titleRow = aiSummaryContainer.createDiv({
+      cls: "rss-reader-ai-summary-title-row",
+    });
+    titleRow.createEl("h4", { text: "AI summary" });
+
+    const actionsRow = titleRow.createDiv({
+      cls: "rss-reader-ai-summary-actions",
+    });
+
+    const hideButton = actionsRow.createEl("button", {
+      cls: "rss-reader-ai-summary-action",
+      attr: {
+        type: "button",
+        "aria-label": this.isAiSummaryCollapsed
+          ? "Show summary"
+          : "Hide summary",
+      },
+    });
+    setIcon(hideButton, this.isAiSummaryCollapsed ? "eye-off" : "eye");
+    hideButton.addEventListener("click", () => {
+      this.toggleAiSummaryCollapsed();
+    });
+
+    const editButton = actionsRow.createEl("button", {
+      cls: "rss-reader-ai-summary-action",
+      attr: {
+        type: "button",
+        "aria-label": "Edit and rerun summary",
+      },
+    });
+    setIcon(editButton, "pencil");
+    editButton.addEventListener("click", () => {
+      this.openAiSummaryEditModal();
+    });
+
+    const deleteButton = actionsRow.createEl("button", {
+      cls: "rss-reader-ai-summary-action is-danger",
+      attr: {
+        type: "button",
+        "aria-label": "Delete summary",
+      },
+    });
+    setIcon(deleteButton, "trash");
+    deleteButton.addEventListener("click", () => {
+      void this.deleteAiSummary();
+    });
+
+    const summaryBody = aiSummaryContainer.createDiv({
+      cls: "rss-reader-ai-summary-body",
+    });
+    summaryBody.createEl("p", {
+      text: item.aiSummaryText,
+    });
+  }
+
+  private toggleAiSummaryCollapsed(): void {
+    this.isAiSummaryCollapsed = !this.isAiSummaryCollapsed;
+    if (this.currentItem) {
+      void this.displayItem(this.currentItem, this.relatedItems);
+    }
+  }
+
+  private async deleteAiSummary(): Promise<void> {
+    if (!this.currentItem?.aiSummaryText) {
+      return;
+    }
+
+    const updates: Partial<FeedItem> = {
+      aiSummaryText: undefined,
+      aiSummaryGeneratedAt: undefined,
+      aiSummaryProvider: undefined,
+      aiSummaryModel: undefined,
+      aiSummaryError: undefined,
+    };
+    this.isAiSummaryCollapsed = false;
+    Object.assign(this.currentItem, updates);
+    this.onArticleUpdate(this.currentItem, updates, true);
+    await this.displayItem(this.currentItem, this.relatedItems);
+    new Notice("Summary deleted.");
+  }
+
+  private openAiSummaryEditModal(): void {
+    if (!this.currentItem) {
+      return;
+    }
+
+    if (!this.settings.aiSummary?.enabled) {
+      new Notice("AI summaries are disabled in settings.");
+      return;
+    }
+
+    const initialPrompt = this.settings.aiSummary.promptTemplate || "";
+    new EditAiSummaryModal(this.app, initialPrompt, async (promptTemplate) => {
+      await this.generateSummary(undefined, promptTemplate, true);
+    }).open();
   }
 
   private toggleStarStatus(): void {

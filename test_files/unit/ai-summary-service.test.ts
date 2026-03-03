@@ -14,6 +14,7 @@ const baseSettings: AiSummarySettings = {
   maxInputChars: 200,
   maxOutputTokens: 128,
   timeoutMs: 30000,
+  updateCardSummary: false,
 };
 
 const article: FeedItem = {
@@ -128,5 +129,32 @@ describe("AiSummaryService", () => {
     };
 
     expect(parsed.messages[1].content).toContain("abcdefghij...");
+  });
+
+  it("uses prompt template override when provided", async () => {
+    const requestUrlMock = vi.spyOn(obsidian, "requestUrl").mockResolvedValue({
+      status: 200,
+      text: JSON.stringify({
+        choices: [{ message: { content: "ok" } }],
+      }),
+    } as unknown as Awaited<ReturnType<typeof obsidian.requestUrl>>);
+
+    const service = new AiSummaryService({
+      ...baseSettings,
+      provider: "openai",
+      promptTemplate: "Default template {{title}}",
+    });
+
+    await service.summarizeArticle(article, "Override template {{title}}");
+
+    const callArgs = requestUrlMock.mock.calls[0][0] as { body: string };
+    const parsed = JSON.parse(callArgs.body) as {
+      messages: Array<{ content: string }>;
+    };
+
+    expect(parsed.messages[1].content).toContain(
+      "Override template Unit test article",
+    );
+    expect(parsed.messages[1].content).not.toContain("Default template");
   });
 });

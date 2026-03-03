@@ -1708,6 +1708,8 @@ export class RssDashboardSettingTab extends PluginSettingTab {
           }),
       );
 
+    let aiPromptTemplateInputEl: HTMLTextAreaElement | null = null;
+
     new Setting(containerEl)
       .setName("Prompt template")
       .setDesc(
@@ -1722,7 +1724,26 @@ export class RssDashboardSettingTab extends PluginSettingTab {
           });
         text.inputEl.rows = 8;
         text.inputEl.addClass("rss-dashboard-ai-prompt-template");
+        aiPromptTemplateInputEl = text.inputEl;
       });
+
+    const aiPromptBtnRow = containerEl.createDiv({
+      cls: "rss-dashboard-template-btn-row",
+    });
+    const resetAiPromptBtn = aiPromptBtnRow.createEl("button", {
+      text: "Reset to default",
+      cls: "rss-dashboard-template-btn",
+    });
+    resetAiPromptBtn.onclick = async () => {
+      this.plugin.settings.aiSummary.promptTemplate =
+        DEFAULT_SETTINGS.aiSummary.promptTemplate;
+      if (aiPromptTemplateInputEl) {
+        aiPromptTemplateInputEl.value =
+          DEFAULT_SETTINGS.aiSummary.promptTemplate;
+      }
+      await this.plugin.saveSettings();
+      new Notice("AI prompt template reset to default");
+    };
 
     new Setting(containerEl)
       .setName("Max input characters")

@@ -218,6 +218,11 @@
   font-size: 12px;
 }
 
+.rss-dashboard-ai-edit-prompt-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 /* Settings Tab Styling */
 .rss-dashboard-settings-tab-bar {
   display: flex;
