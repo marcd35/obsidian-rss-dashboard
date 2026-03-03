@@ -22,6 +22,7 @@ import {
 import { ImportOpmlModal } from "../modals/import-opml-modal";
 import { renderKeywordFilterEditor } from "../components/keyword-filter-editor";
 import { AiSummaryService } from "../services/ai-summary-service";
+import { setCssProps } from "../utils/platform-utils";
 
 class TemplateNameModal extends Modal {
   private result: string | null = null;
@@ -110,7 +111,6 @@ export class RssDashboardSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
-  
   public activateTab(tabName: string): void {
     if (this.tabNames.includes(tabName)) {
       this.currentTab = tabName;
@@ -503,7 +503,9 @@ export class RssDashboardSettingTab extends PluginSettingTab {
       .setName("Show unread badge: all feeds")
       .addToggle((toggle) =>
         toggle
-          .setValue(this.plugin.settings.display.showAllFeedsUnreadBadges ?? true)
+          .setValue(
+            this.plugin.settings.display.showAllFeedsUnreadBadges ?? true,
+          )
           .onChange(async (value) => {
             this.plugin.settings.display.showAllFeedsUnreadBadges = value;
             await this.plugin.saveSettings();
@@ -1654,14 +1656,12 @@ export class RssDashboardSettingTab extends PluginSettingTab {
           .addOption("openrouter", "openrouter")
           .addOption("openai", "openai")
           .addOption("claude", "claude (anthropic)")
-          .addOption("kilo", "kilo gateway")
           .setValue(this.plugin.settings.aiSummary.provider)
           .onChange(async (value) => {
             this.plugin.settings.aiSummary.provider = value as
               | "openrouter"
               | "openai"
-              | "claude"
-              | "kilo";
+              | "claude";
             await this.plugin.saveSettings();
           }),
       );
@@ -1757,27 +1757,69 @@ export class RssDashboardSettingTab extends PluginSettingTab {
           }),
       );
 
+    const aiStatusRowEl = containerEl.createDiv({
+      cls: "rss-dashboard-ai-test-status-row",
+    });
+    const aiStatusLabelEl = aiStatusRowEl.createSpan({
+      cls: "rss-dashboard-ai-test-status-label",
+      text: "Status:",
+    });
+    const aiStatusValueEl = aiStatusRowEl.createSpan({
+      cls: "rss-dashboard-ai-test-status-value",
+    });
+    setCssProps(aiStatusLabelEl, { display: "none" });
+    setCssProps(aiStatusValueEl, { display: "none" });
+
+    const updateAiTestStatus = (
+      state: "loading" | "success" | "error",
+      message: string,
+    ): void => {
+      setCssProps(aiStatusLabelEl, { display: "" });
+      setCssProps(aiStatusValueEl, { display: "" });
+      aiStatusValueEl.removeClass("is-loading", "is-success", "is-error");
+      aiStatusValueEl.addClass(`is-${state}`);
+      aiStatusValueEl.setText(message);
+    };
+
+    let isAiConnectionTestRunning = false;
+
     new Setting(containerEl)
       .setName("Test AI connection")
       .setDesc("Sends a tiny test prompt using your current provider settings")
       .addButton((button) =>
         button.setButtonText("Test").onClick(() => {
+          if (isAiConnectionTestRunning) {
+            return;
+          }
           void (async () => {
+            isAiConnectionTestRunning = true;
+            button.setDisabled(true);
             try {
-              const service = new AiSummaryService(this.plugin.settings.aiSummary);
+              updateAiTestStatus("loading", "Testing AI connection...");
+              const service = new AiSummaryService(
+                this.plugin.settings.aiSummary,
+              );
               await service.testConnection();
+              updateAiTestStatus(
+                "success",
+                "AI connection successful.",
+              );
               new Notice("AI connection successful.");
             } catch (error) {
               const message =
                 error instanceof Error
                   ? error.message
                   : "AI connection test failed.";
+              updateAiTestStatus("error", message);
               new Notice(message);
+            } finally {
+              isAiConnectionTestRunning = false;
+              button.setDisabled(false);
             }
           })();
         }),
       );
-      /* eslint-enable obsidianmd/ui/sentence-case */
+    /* eslint-enable obsidianmd/ui/sentence-case */
   }
 
   private createImportExportTab(containerEl: HTMLElement): void {

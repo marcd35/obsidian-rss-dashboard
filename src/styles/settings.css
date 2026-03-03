@@ -429,6 +429,35 @@
   border-left: 3px solid var(--color-accent);
 }
 
+.rss-dashboard-ai-test-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 4px;
+  font-size: 13px;
+}
+
+.rss-dashboard-ai-test-status-label {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.rss-dashboard-ai-test-status-value {
+  color: var(--text-muted);
+}
+
+.rss-dashboard-ai-test-status-value.is-loading {
+  color: var(--text-muted);
+}
+
+.rss-dashboard-ai-test-status-value.is-success {
+  color: var(--text-success);
+}
+
+.rss-dashboard-ai-test-status-value.is-error {
+  color: var(--text-error);
+}
+
 /* Filter visibility toggle styling */
 .rss-dashboard-settings-description + .setting-item {
   margin-top: 8px;
