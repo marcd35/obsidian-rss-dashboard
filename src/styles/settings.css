@@ -442,6 +442,35 @@
   font-size: 13px;
 }
 
+.rss-dashboard-ai-api-key-input {
+  font-family: var(--font-monospace);
+}
+
+.rss-dashboard-prompt-template-setting {
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.rss-dashboard-prompt-template-setting .setting-item-info {
+  width: 100%;
+  min-width: 0;
+  padding-bottom: 6px;
+}
+
+.rss-dashboard-prompt-template-setting .setting-item-control {
+  width: 100%;
+  min-width: 0;
+}
+
+.rss-dashboard-prompt-template-setting .setting-item-control textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  min-height: 170px;
+  resize: none;
+}
+
 .rss-dashboard-ai-test-status-label {
   color: var(--text-muted);
   font-weight: 600;
