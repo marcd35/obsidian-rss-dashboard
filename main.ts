@@ -1282,6 +1282,16 @@ export default class RssDashboardPlugin extends Plugin {
         );
       }
 
+      if (!this.settings.aiSummary) {
+        this.settings.aiSummary = DEFAULT_SETTINGS.aiSummary;
+      } else {
+        this.settings.aiSummary = Object.assign(
+          {},
+          DEFAULT_SETTINGS.aiSummary,
+          this.settings.aiSummary,
+        );
+      }
+
       // Ensure display settings are properly initialized
       if (!this.settings.display) {
         this.settings.display = DEFAULT_SETTINGS.display;
@@ -1380,6 +1390,16 @@ export default class RssDashboardPlugin extends Plugin {
       this.settings.articleSaving.defaultTemplate =
         articleSavingUnknown.template as string;
       delete articleSavingUnknown.template;
+    }
+
+    if (!this.settings.aiSummary) {
+      this.settings.aiSummary = DEFAULT_SETTINGS.aiSummary;
+    } else {
+      this.settings.aiSummary = Object.assign(
+        {},
+        DEFAULT_SETTINGS.aiSummary,
+        this.settings.aiSummary,
+      );
     }
 
     // Migrate display settings

@@ -18,6 +18,11 @@ export interface FeedItem {
   duration?: string;
   author?: string;
   summary?: string;
+  aiSummaryText?: string;
+  aiSummaryGeneratedAt?: number;
+  aiSummaryProvider?: AiSummaryProvider;
+  aiSummaryModel?: string;
+  aiSummaryError?: string;
   content?: string;
   saved?: boolean;
   savedFilePath?: string;
@@ -227,6 +232,23 @@ export interface FeedFilterSettings {
   rules: KeywordFilterRule[];
 }
 
+export type AiSummaryProvider =
+  | "openrouter"
+  | "openai"
+  | "claude"
+  | "kilo";
+
+export interface AiSummarySettings {
+  enabled: boolean;
+  provider: AiSummaryProvider;
+  model: string;
+  apiKey: string;
+  promptTemplate: string;
+  maxInputChars: number;
+  maxOutputTokens: number;
+  timeoutMs: number;
+}
+
 export interface RssDashboardSettings {
   feeds: Feed[];
   folders: Folder[];
@@ -271,6 +293,7 @@ export interface RssDashboardSettings {
 
   media: MediaSettings;
   articleSaving: ArticleSavingSettings;
+  aiSummary: AiSummarySettings;
   display: DisplaySettings;
   highlights: HighlightSettings;
   filters: GlobalFilterSettings;
@@ -379,6 +402,17 @@ guid: "{{guid}}"
     saveFullContent: true,
     fetchTimeout: 10,
     savedTemplates: [],
+  },
+  aiSummary: {
+    enabled: false,
+    provider: "openrouter",
+    model: "openai/gpt-5.2",
+    apiKey: "",
+    promptTemplate:
+      "Summarize this article in 5 concise bullet points. Focus on key takeaways, claims, and practical implications.\n\nTitle: {{title}}\nFeed: {{feedTitle}}\nURL: {{link}}\nPublished: {{pubDate}}\n\nArticle:\n{{content}}",
+    maxInputChars: 12000,
+    maxOutputTokens: 280,
+    timeoutMs: 30000,
   },
   display: {
     showCoverImage: true,

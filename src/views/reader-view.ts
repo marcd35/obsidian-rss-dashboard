@@ -25,6 +25,7 @@ import { Readability } from "@mozilla/readability";
 import TurndownService from "turndown";
 import { ensureUtf8Meta } from "../utils/platform-utils";
 import { RSS_DASHBOARD_VIEW_TYPE } from "./dashboard-view";
+import { AiSummaryService } from "../services/ai-summary-service";
 
 export const RSS_READER_VIEW_TYPE = "rss-reader-view";
 
@@ -192,6 +193,17 @@ export class ReaderView extends ItemView {
         this.showSaveOptions(e, this.currentItem);
       }
     });
+
+    if (this.settings.aiSummary?.enabled) {
+      const summarizeButton = actions.createDiv({
+        cls: "rss-reader-action-button",
+        attr: { title: "Summarize with AI" },
+      });
+      setIcon(summarizeButton, "sparkles");
+      summarizeButton.addEventListener("click", () => {
+        void this.summarizeCurrentItem(summarizeButton);
+      });
+    }
 
     // Read toggle button
     this.readToggleButton = actions.createDiv({
@@ -607,6 +619,16 @@ export class ReaderView extends ItemView {
       }
     }
 
+    if (item.aiSummaryText) {
+      const aiSummaryContainer = this.readingContainer.createDiv({
+        cls: "rss-reader-ai-summary",
+      });
+      aiSummaryContainer.createEl("h4", { text: "AI summary" });
+      aiSummaryContainer.createEl("p", {
+        text: item.aiSummaryText,
+      });
+    }
+
     if (
       this.settings.display.showCoverImage &&
       (item.coverImage ||
@@ -930,6 +952,54 @@ export class ReaderView extends ItemView {
 
     // Notify parent to persist the change
     this.onArticleUpdate(this.currentItem, { read: newReadState }, false);
+  }
+
+  private async summarizeCurrentItem(button: HTMLElement): Promise<void> {
+    if (!this.currentItem) {
+      return;
+    }
+
+    if (!this.settings.aiSummary?.enabled) {
+      new Notice("AI summaries are disabled in settings.");
+      return;
+    }
+
+    if (button.hasClass("is-loading")) {
+      return;
+    }
+
+    button.addClass("is-loading");
+    button.setAttr("title", "Summarizing...");
+
+    try {
+      const service = new AiSummaryService(this.settings.aiSummary);
+      const result = await service.summarizeArticle(this.currentItem);
+      const updates: Partial<FeedItem> = {
+        aiSummaryText: result.summary,
+        aiSummaryGeneratedAt: Date.now(),
+        aiSummaryProvider: result.provider,
+        aiSummaryModel: result.model,
+        aiSummaryError: undefined,
+      };
+      Object.assign(this.currentItem, updates);
+      this.onArticleUpdate(this.currentItem, updates, true);
+      new Notice("Summary generated.");
+      await this.displayItem(this.currentItem, this.relatedItems);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to summarize article.";
+      if (this.currentItem) {
+        const updates: Partial<FeedItem> = {
+          aiSummaryError: message,
+        };
+        Object.assign(this.currentItem, updates);
+        this.onArticleUpdate(this.currentItem, updates, false);
+      }
+      new Notice(message);
+    } finally {
+      button.removeClass("is-loading");
+      button.setAttr("title", "Summarize with AI");
+    }
   }
 
   private toggleStarStatus(): void {

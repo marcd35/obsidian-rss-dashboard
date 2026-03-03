@@ -59,6 +59,7 @@ interface ArticleListCallbacks {
     shouldRerender?: boolean,
   ) => void;
   onArticleSave: (article: FeedItem) => void;
+  onArticleSummarize?: (article: FeedItem) => Promise<void> | void;
   onOpenSavedArticle?: (article: FeedItem) => void;
   onOpenInReaderView?: (article: FeedItem) => void;
   onToggleSidebar: () => void;
@@ -76,6 +77,10 @@ interface ArticleListCallbacks {
   onMarkAllAsRead?: () => void;
   onPersistSettings?: () => Promise<void> | void;
   onOpenTagsSettings?: () => Promise<void> | void;
+}
+
+function getDisplaySummary(article: FeedItem): string {
+  return article.aiSummaryText || article.summary || "";
 }
 
 export class ArticleList {
@@ -1953,6 +1958,48 @@ export class ArticleList {
     });
   }
 
+  private createSummarizeButton(
+    actionToolbar: HTMLElement,
+    article: FeedItem,
+  ): void {
+    // UI guardrails:
+    // - hidden when feature disabled
+    // - single-flight via existing "saving" state class to avoid duplicate calls
+    if (!this.settings.aiSummary?.enabled || !this.callbacks.onArticleSummarize) {
+      return;
+    }
+
+    const summarizeButton = actionToolbar.createDiv({
+      cls: "rss-dashboard-save-toggle rss-dashboard-ai-summary-toggle",
+      attr: {
+        title: "Summarize with AI",
+      },
+    });
+    setIcon(summarizeButton, "sparkles");
+    if (!summarizeButton.querySelector("svg")) {
+      summarizeButton.textContent = "AI";
+    }
+
+    summarizeButton.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (summarizeButton.classList.contains("saving")) {
+        return;
+      }
+
+      summarizeButton.classList.add("saving");
+      summarizeButton.setAttribute("title", "Summarizing...");
+
+      Promise.resolve(this.callbacks.onArticleSummarize?.(article))
+        .catch(() => {
+          // Errors are surfaced via Notice in the caller.
+        })
+        .finally(() => {
+          summarizeButton.classList.remove("saving");
+          summarizeButton.setAttribute("title", "Summarize with AI");
+        });
+    });
+  }
+
   private createArticleActionButtons(
     actionToolbar: HTMLElement,
     article: FeedItem,
@@ -1963,6 +2010,7 @@ export class ArticleList {
       return;
     }
     this.createSaveButton(actionToolbar, article);
+    this.createSummarizeButton(actionToolbar, article);
     this.createStarToggle(actionToolbar, article);
     this.createTagsToggle(actionToolbar, article);
   }
@@ -2157,8 +2205,10 @@ export class ArticleList {
         const extracted = extractFirstImageSrc(article.content);
         if (extracted) coverImgSrc = extracted;
       }
-      if (!coverImgSrc && article.summary) {
-        const extracted = extractFirstImageSrc(article.summary);
+      const displaySummary = getDisplaySummary(article);
+
+      if (!coverImgSrc && displaySummary) {
+        const extracted = extractFirstImageSrc(displaySummary);
         if (extracted) coverImgSrc = extracted;
       }
 
@@ -2166,7 +2216,7 @@ export class ArticleList {
         const coverContainer = cardContent.createDiv({
           cls:
             "rss-dashboard-cover-container" +
-            (article.summary ? " has-summary" : ""),
+            (displaySummary ? " has-summary" : ""),
         });
         const coverImg = coverContainer.createEl("img", {
           cls: "rss-dashboard-cover-image",
@@ -2179,7 +2229,7 @@ export class ArticleList {
           coverContainer.remove();
         };
 
-        if (article.summary) {
+        if (displaySummary) {
           const summaryOverlay = coverContainer.createDiv({
             cls: "rss-dashboard-summary-overlay",
           });
@@ -2192,13 +2242,13 @@ export class ArticleList {
             );
             highlightService.setHighlightedText(
               summaryOverlay,
-              article.summary,
+              displaySummary,
             );
           } else {
-            summaryOverlay.textContent = article.summary;
+            summaryOverlay.textContent = displaySummary;
           }
         }
-      } else if (article.summary) {
+      } else if (displaySummary) {
         const summaryOnlyContainer = cardContent.createDiv({
           cls: "rss-dashboard-cover-summary-only",
         });
@@ -2211,10 +2261,10 @@ export class ArticleList {
           );
           highlightService.setHighlightedText(
             summaryOnlyContainer,
-            article.summary,
+            displaySummary,
           );
         } else {
-          summaryOnlyContainer.textContent = article.summary;
+          summaryOnlyContainer.textContent = displaySummary;
         }
       }
 
@@ -2452,6 +2502,17 @@ export class ArticleList {
           .setIcon("save")
           .onClick(() => {
             this.callbacks.onArticleSave(article);
+          });
+      });
+    }
+
+    if (this.settings.aiSummary?.enabled && this.callbacks.onArticleSummarize) {
+      menu.addItem((item: MenuItem) => {
+        item
+          .setTitle("Summarize with AI")
+          .setIcon("sparkles")
+          .onClick(() => {
+            void this.callbacks.onArticleSummarize?.(article);
           });
       });
     }

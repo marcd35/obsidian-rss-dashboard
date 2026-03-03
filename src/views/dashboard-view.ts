@@ -27,6 +27,7 @@ import { ReaderView, RSS_READER_VIEW_TYPE } from "./reader-view";
 import { FeedManagerModal } from "../modals/feed-manager-modal";
 import { MobileNavigationModal } from "../modals/mobile-navigation-modal";
 import { KeywordFilterService } from "../services/keyword-filter-service";
+import { AiSummaryService } from "../services/ai-summary-service";
 
 export const RSS_DASHBOARD_VIEW_TYPE = "rss-dashboard-view";
 
@@ -307,6 +308,9 @@ export class RssDashboardView extends ItemView {
         },
         onArticleSave: (article) => {
           void this.handleArticleSave(article);
+        },
+        onArticleSummarize: (article) => {
+          void this.handleArticleSummarize(article);
         },
         onOpenSavedArticle: (article) => {
           void this.handleOpenSavedArticle(article);
@@ -1463,6 +1467,44 @@ export class RssDashboardView extends ItemView {
     if (file) {
       await this.updateArticleStatus(article, { saved: true }, false);
       this.updateArticleSaveButton(article.guid);
+    }
+  }
+
+  private async handleArticleSummarize(article: FeedItem): Promise<void> {
+    // Central summarize entrypoint for list/context-menu actions.
+    // Reader view uses its own trigger but persists through the same update flow.
+    const summarySettings = this.settings.aiSummary;
+    if (!summarySettings.enabled) {
+      new Notice("AI summaries are disabled in settings.");
+      return;
+    }
+
+    try {
+      const service = new AiSummaryService(summarySettings);
+      const result = await service.summarizeArticle(article);
+      await this.updateArticleStatus(
+        article,
+        {
+          aiSummaryText: result.summary,
+          aiSummaryGeneratedAt: Date.now(),
+          aiSummaryProvider: result.provider,
+          aiSummaryModel: result.model,
+          aiSummaryError: undefined,
+        },
+        true,
+      );
+      new Notice("Summary generated.");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to summarize article.";
+      await this.updateArticleStatus(
+        article,
+        {
+          aiSummaryError: message,
+        },
+        false,
+      );
+      new Notice(message);
     }
   }
 

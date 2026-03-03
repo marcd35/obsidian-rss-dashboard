@@ -21,6 +21,7 @@ import {
 } from "../components/folder-suggest";
 import { ImportOpmlModal } from "../modals/import-opml-modal";
 import { renderKeywordFilterEditor } from "../components/keyword-filter-editor";
+import { AiSummaryService } from "../services/ai-summary-service";
 
 class TemplateNameModal extends Modal {
   private result: string | null = null;
@@ -96,6 +97,7 @@ export class RssDashboardSettingTab extends PluginSettingTab {
     "Display",
     "Media",
     "Article saving",
+    "AI",
     "Filters",
     "Highlights",
     "Import/Export",
@@ -149,6 +151,9 @@ export class RssDashboardSettingTab extends PluginSettingTab {
         break;
       case "Article saving":
         this.createArticleSavingSettings(tabContent);
+        break;
+      case "AI":
+        this.createAiSettings(tabContent);
         break;
       case "Filters":
         this.createFiltersSettings(tabContent);
@@ -1623,6 +1628,156 @@ export class RssDashboardSettingTab extends PluginSettingTab {
     const modal = new TemplateNameModal(this.app);
     modal.open();
     return modal.waitForClose();
+  }
+
+  private createAiSettings(containerEl: HTMLElement): void {
+    // AI settings are intentionally grouped in one tab so future provider/security
+    // upgrades can be localized here without touching other settings sections.
+    /* eslint-disable obsidianmd/ui/sentence-case */
+    new Setting(containerEl)
+      .setName("Enable AI summaries")
+      .setDesc("Show summarize actions and allow AI summary requests")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.aiSummary.enabled)
+          .onChange(async (value) => {
+            this.plugin.settings.aiSummary.enabled = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Provider")
+      .setDesc("Choose which API provider to use for summaries")
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption("openrouter", "openrouter")
+          .addOption("openai", "openai")
+          .addOption("claude", "claude (anthropic)")
+          .addOption("kilo", "kilo gateway")
+          .setValue(this.plugin.settings.aiSummary.provider)
+          .onChange(async (value) => {
+            this.plugin.settings.aiSummary.provider = value as
+              | "openrouter"
+              | "openai"
+              | "claude"
+              | "kilo";
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Model")
+      .setDesc(
+        "Model name for the selected provider (e.g. openai/gpt-5.2, gpt-5, claude-sonnet-4.5)",
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("openai/gpt-5.2")
+          .setValue(this.plugin.settings.aiSummary.model)
+          .onChange(async (value) => {
+            this.plugin.settings.aiSummary.model = value.trim();
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Api key")
+      .setDesc(
+        "Stored in plugin settings. For stronger security, migrate to Obsidian SecretStorage in a follow-up.",
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("Paste API key")
+          .setValue(this.plugin.settings.aiSummary.apiKey)
+          .onChange(async (value) => {
+            this.plugin.settings.aiSummary.apiKey = value.trim();
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Prompt template")
+      .setDesc(
+        "Supports placeholders: {{title}}, {{feedTitle}}, {{link}}, {{pubDate}}, {{content}}",
+      )
+      .addTextArea((text) => {
+        text
+          .setValue(this.plugin.settings.aiSummary.promptTemplate)
+          .onChange(async (value) => {
+            this.plugin.settings.aiSummary.promptTemplate = value;
+            await this.plugin.saveSettings();
+          });
+        text.inputEl.rows = 8;
+        text.inputEl.addClass("rss-dashboard-ai-prompt-template");
+      });
+
+    new Setting(containerEl)
+      .setName("Max input characters")
+      .setDesc("Limit article text sent to provider")
+      .addSlider((slider) =>
+        slider
+          .setLimits(1000, 30000, 500)
+          .setValue(this.plugin.settings.aiSummary.maxInputChars)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            this.plugin.settings.aiSummary.maxInputChars = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Max output tokens")
+      .setDesc("Upper bound for generated summary length")
+      .addSlider((slider) =>
+        slider
+          .setLimits(64, 1024, 16)
+          .setValue(this.plugin.settings.aiSummary.maxOutputTokens)
+          .setDynamicTooltip()
+          .onChange(async (value) => {
+            this.plugin.settings.aiSummary.maxOutputTokens = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Request timeout (ms)")
+      .setDesc("Request timeout used for AI provider calls")
+      .addText((text) =>
+        text
+          .setPlaceholder("30000")
+          .setValue(String(this.plugin.settings.aiSummary.timeoutMs))
+          .onChange(async (value) => {
+            const next = Number(value);
+            if (!Number.isFinite(next) || next < 1000) {
+              return;
+            }
+            this.plugin.settings.aiSummary.timeoutMs = Math.round(next);
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Test AI connection")
+      .setDesc("Sends a tiny test prompt using your current provider settings")
+      .addButton((button) =>
+        button.setButtonText("Test").onClick(() => {
+          void (async () => {
+            try {
+              const service = new AiSummaryService(this.plugin.settings.aiSummary);
+              await service.testConnection();
+              new Notice("AI connection successful.");
+            } catch (error) {
+              const message =
+                error instanceof Error
+                  ? error.message
+                  : "AI connection test failed.";
+              new Notice(message);
+            }
+          })();
+        }),
+      );
+      /* eslint-enable obsidianmd/ui/sentence-case */
   }
 
   private createImportExportTab(containerEl: HTMLElement): void {
