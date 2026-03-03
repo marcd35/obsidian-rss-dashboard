@@ -1510,7 +1510,8 @@ export class RssDashboardView extends ItemView {
           aiSummaryModel: result.model,
           aiSummaryError: undefined,
         },
-        true,
+        // Keep summarize updates targeted to the affected card (GUID-based DOM sync).
+        false,
       );
       new Notice("Summary generated.");
     } catch (error) {

@@ -523,6 +523,25 @@
 	animation: spin 1s linear infinite;
 }
 
+.rss-dashboard-ai-summary-toggle.is-processing {
+	opacity: 0.45;
+	pointer-events: none;
+}
+
+.rss-dashboard-ai-summary-toggle.is-processing svg {
+	animation: rss-dashboard-ai-summary-spin 0.9s linear infinite;
+	transform-origin: center;
+}
+
+@keyframes rss-dashboard-ai-summary-spin {
+	from {
+		transform: rotate(0deg);
+	}
+	to {
+		transform: rotate(360deg);
+	}
+}
+
 .rss-dashboard-article-card.saved {
 	border-left: 3px solid var(--interactive-accent);
 }

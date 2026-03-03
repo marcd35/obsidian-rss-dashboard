@@ -476,6 +476,18 @@ export class ArticleList {
   }
 
   private syncArticleElement(articleEl: HTMLElement, article: FeedItem): void {
+    // Card summary/cover preview markup is structurally different from list items.
+    // Compare rendered summary text vs expected summary text and rebuild only when
+    // needed, so we keep updates targeted while avoiding full dashboard rerenders.
+    if (
+      articleEl.classList.contains("rss-dashboard-article-card") &&
+      this.getRenderedCardSummary(articleEl) !==
+        getDisplaySummary(article).trim()
+    ) {
+      this.replaceCardElement(articleEl, article);
+      return;
+    }
+
     articleEl.classList.toggle("read", !!article.read);
     articleEl.classList.toggle("unread", !article.read);
     articleEl.classList.toggle("saved", !!article.saved);
@@ -529,6 +541,40 @@ export class ArticleList {
     }
 
     this.syncArticleTags(articleEl, article);
+  }
+
+  private getRenderedCardSummary(cardEl: HTMLElement): string {
+    const summaryOverlay = cardEl.querySelector<HTMLElement>(
+      ".rss-dashboard-summary-overlay",
+    );
+    if (summaryOverlay) {
+      return summaryOverlay.textContent?.trim() || "";
+    }
+
+    const summaryOnly = cardEl.querySelector<HTMLElement>(
+      ".rss-dashboard-cover-summary-only",
+    );
+    if (summaryOnly) {
+      return summaryOnly.textContent?.trim() || "";
+    }
+
+    return "";
+  }
+
+  private replaceCardElement(currentCardEl: HTMLElement, article: FeedItem): void {
+    const cardContainer = currentCardEl.parentElement;
+    if (!cardContainer) {
+      return;
+    }
+
+    const tempWrapper = document.createElement("div");
+    this.renderCardView(tempWrapper, [article]);
+    const nextCardEl = tempWrapper.firstElementChild;
+    if (!(nextCardEl instanceof HTMLElement)) {
+      return;
+    }
+
+    cardContainer.replaceChild(nextCardEl, currentCardEl);
   }
 
   private syncArticleTags(articleEl: HTMLElement, article: FeedItem): void {
@@ -1991,7 +2037,9 @@ export class ArticleList {
         return;
       }
 
-      summarizeButton.classList.add("saving");
+      summarizeButton.classList.add("saving", "is-processing");
+      summarizeButton.setAttr("aria-disabled", "true");
+      summarizeButton.setAttr("aria-busy", "true");
       summarizeButton.setAttribute("title", "Summarizing...");
 
       Promise.resolve(this.callbacks.onArticleSummarize?.(article))
@@ -1999,7 +2047,9 @@ export class ArticleList {
           // Errors are surfaced via Notice in the caller.
         })
         .finally(() => {
-          summarizeButton.classList.remove("saving");
+          summarizeButton.classList.remove("saving", "is-processing");
+          summarizeButton.removeAttribute("aria-disabled");
+          summarizeButton.removeAttribute("aria-busy");
           summarizeButton.setAttribute("title", "Summarize with AI");
         });
     });
@@ -2009,13 +2059,21 @@ export class ArticleList {
     actionToolbar: HTMLElement,
     article: FeedItem,
     mode: "full" | "minimal-read",
+    options?: {
+      includeSummarize?: boolean;
+    },
   ): void {
     this.createReadToggle(actionToolbar, article);
     if (mode === "minimal-read") {
       return;
     }
+
+    const includeSummarize = options?.includeSummarize ?? true;
+
     this.createSaveButton(actionToolbar, article);
-    this.createSummarizeButton(actionToolbar, article);
+    if (includeSummarize) {
+      this.createSummarizeButton(actionToolbar, article);
+    }
     this.createStarToggle(actionToolbar, article);
     this.createTagsToggle(actionToolbar, article);
   }
@@ -2301,7 +2359,9 @@ export class ArticleList {
         const actionToolbar = cardFooter.createDiv({
           cls: "rss-dashboard-action-toolbar rss-dashboard-card-toolbar",
         });
-        this.createArticleActionButtons(actionToolbar, article, "full");
+        this.createArticleActionButtons(actionToolbar, article, "full", {
+          includeSummarize: false,
+        });
 
         const dateEl = actionToolbar.createDiv({
           cls: "rss-dashboard-article-date",
