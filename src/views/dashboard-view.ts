@@ -1632,7 +1632,6 @@ export class RssDashboardView extends ItemView {
         articlesForPage,
       );
     }
-
   }
 
   /**

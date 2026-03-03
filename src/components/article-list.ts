@@ -563,7 +563,10 @@ export class ArticleList {
     return "";
   }
 
-  private replaceCardElement(currentCardEl: HTMLElement, article: FeedItem): void {
+  private replaceCardElement(
+    currentCardEl: HTMLElement,
+    article: FeedItem,
+  ): void {
     const cardContainer = currentCardEl.parentElement;
     if (!cardContainer) {
       return;

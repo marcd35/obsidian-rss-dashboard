@@ -1570,6 +1570,13 @@ export default class RssDashboardPlugin extends Plugin {
     if (typeof aiSummary.localBaseUrl !== "string") {
       aiSummary.localBaseUrl = DEFAULT_SETTINGS.aiSummary.localBaseUrl;
     }
+
+    if (
+      !aiSummary.providerOverrides ||
+      typeof aiSummary.providerOverrides !== "object"
+    ) {
+      aiSummary.providerOverrides = {};
+    }
   }
 
   onunload() {}

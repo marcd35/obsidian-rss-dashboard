@@ -8,7 +8,9 @@ const baseSettings: AiSummarySettings = {
   enabled: true,
   provider: "openrouter",
   model: "openai/gpt-5.2",
-  apiKey: "test-key",
+  openrouterApiKey: "openrouter-key",
+  openaiApiKey: "openai-key",
+  claudeApiKey: "claude-key",
   localMode: "ollama",
   localBaseUrl: "http://localhost:11434",
   promptTemplate:
@@ -17,6 +19,7 @@ const baseSettings: AiSummarySettings = {
   maxOutputTokens: 128,
   timeoutMs: 30000,
   updateCardSummary: false,
+  providerOverrides: {},
 };
 
 const article: FeedItem = {
@@ -76,7 +79,7 @@ describe("AiSummaryService", () => {
     const requestUrlSpy = vi.spyOn(obsidian, "requestUrl");
     const service = new AiSummaryService({
       ...baseSettings,
-      apiKey: "",
+      openrouterApiKey: "",
     });
 
     await expect(service.summarizeArticle(article)).rejects.toThrow(
@@ -96,7 +99,9 @@ describe("AiSummaryService", () => {
     const service = new AiSummaryService({
       ...baseSettings,
       provider: "local",
-      apiKey: "",
+      openrouterApiKey: "",
+      openaiApiKey: "",
+      claudeApiKey: "",
       localMode: "ollama",
       localBaseUrl: "http://localhost:11434",
       model: "llama3.2",
@@ -122,7 +127,9 @@ describe("AiSummaryService", () => {
     const service = new AiSummaryService({
       ...baseSettings,
       provider: "local",
-      apiKey: "",
+      openrouterApiKey: "",
+      openaiApiKey: "",
+      claudeApiKey: "",
       localMode: "openai-compatible",
       localBaseUrl: "http://localhost:1234/",
       model: "local-model",
@@ -145,7 +152,9 @@ describe("AiSummaryService", () => {
     const service = new AiSummaryService({
       ...baseSettings,
       provider: "local",
-      apiKey: "",
+      openrouterApiKey: "",
+      openaiApiKey: "",
+      claudeApiKey: "",
       localMode: "ollama",
       localBaseUrl: "",
     });
@@ -167,7 +176,9 @@ describe("AiSummaryService", () => {
     const service = new AiSummaryService({
       ...baseSettings,
       provider: "local",
-      apiKey: "",
+      openrouterApiKey: "",
+      openaiApiKey: "",
+      claudeApiKey: "",
       localMode: "ollama",
       localBaseUrl: "http://127.0.0.1:1234",
       model: "google/gemma-3-4b",
@@ -251,5 +262,51 @@ describe("AiSummaryService", () => {
       "Override template Unit test article",
     );
     expect(parsed.messages[1].content).not.toContain("Default template");
+  });
+
+  it("uses OpenAI provider key for OpenAI requests", async () => {
+    const requestUrlMock = vi.spyOn(obsidian, "requestUrl").mockResolvedValue({
+      status: 200,
+      text: JSON.stringify({
+        choices: [{ message: { content: "OpenAI summary" } }],
+      }),
+    } as unknown as Awaited<ReturnType<typeof obsidian.requestUrl>>);
+
+    const service = new AiSummaryService({
+      ...baseSettings,
+      provider: "openai",
+      openrouterApiKey: "wrong-key",
+      openaiApiKey: "openai-correct-key",
+    });
+
+    await service.summarizeArticle(article);
+
+    const callArgs = requestUrlMock.mock.calls[0][0] as {
+      headers: Record<string, string>;
+    };
+    expect(callArgs.headers.Authorization).toBe("Bearer openai-correct-key");
+  });
+
+  it("uses Claude provider key for Claude requests", async () => {
+    const requestUrlMock = vi.spyOn(obsidian, "requestUrl").mockResolvedValue({
+      status: 200,
+      text: JSON.stringify({
+        content: [{ type: "text", text: "Claude summary" }],
+      }),
+    } as unknown as Awaited<ReturnType<typeof obsidian.requestUrl>>);
+
+    const service = new AiSummaryService({
+      ...baseSettings,
+      provider: "claude",
+      claudeApiKey: "claude-correct-key",
+      openrouterApiKey: "wrong-key",
+    });
+
+    await service.summarizeArticle(article);
+
+    const callArgs = requestUrlMock.mock.calls[0][0] as {
+      headers: Record<string, string>;
+    };
+    expect(callArgs.headers["x-api-key"]).toBe("claude-correct-key");
   });
 });

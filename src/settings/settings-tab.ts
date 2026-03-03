@@ -22,6 +22,7 @@ import {
 import { ImportOpmlModal } from "../modals/import-opml-modal";
 import { renderKeywordFilterEditor } from "../components/keyword-filter-editor";
 import { AiSummaryService } from "../services/ai-summary-service";
+import { getResolvedAiProviderConfig } from "../services/ai-summary-settings-utils";
 import { setCssProps } from "../utils/platform-utils";
 
 class TemplateNameModal extends Modal {
@@ -1662,13 +1663,13 @@ export class RssDashboardSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Provider")
-      .setDesc("Choose which API provider to use for summaries")
+      .setDesc("Pick the summary source. Only selected provider settings are shown below.")
       .addDropdown((dropdown) =>
         dropdown
-          .addOption("openrouter", "openrouter")
-          .addOption("openai", "openai")
-          .addOption("claude", "claude (anthropic)")
-          .addOption("local", "local")
+          .addOption("local", "Local")
+          .addOption("openai", "OpenAI")
+          .addOption("claude", "Claude")
+          .addOption("openrouter", "OpenRouter")
           .setValue(this.plugin.settings.aiSummary.provider)
           .onChange(async (value) => {
             this.plugin.settings.aiSummary.provider = value as
@@ -1681,20 +1682,135 @@ export class RssDashboardSettingTab extends PluginSettingTab {
           }),
       );
 
+    const activeProvider = this.plugin.settings.aiSummary.provider;
+    const resolvedProviderConfig = getResolvedAiProviderConfig(
+      this.plugin.settings.aiSummary,
+      activeProvider,
+    );
+
+    const ensureActiveProviderOverrides = (): {
+      model?: string;
+      promptTemplate?: string;
+      maxInputChars?: number;
+      maxOutputTokens?: number;
+      timeoutMs?: number;
+    } => {
+      if (!this.plugin.settings.aiSummary.providerOverrides) {
+        this.plugin.settings.aiSummary.providerOverrides = {};
+      }
+
+      const existing = this.plugin.settings.aiSummary.providerOverrides[
+        activeProvider
+      ];
+      if (existing) {
+        return existing;
+      }
+
+      const created: {
+        model?: string;
+        promptTemplate?: string;
+        maxInputChars?: number;
+        maxOutputTokens?: number;
+        timeoutMs?: number;
+      } = {};
+      this.plugin.settings.aiSummary.providerOverrides[activeProvider] = created;
+      return created;
+    };
+
+    const clearProviderOverrideIfEmpty = (): void => {
+      const current = this.plugin.settings.aiSummary.providerOverrides?.[
+        activeProvider
+      ];
+      if (!current) {
+        return;
+      }
+
+      const hasAnyOverride =
+        typeof current.model === "string" ||
+        typeof current.promptTemplate === "string" ||
+        typeof current.maxInputChars === "number" ||
+        typeof current.maxOutputTokens === "number" ||
+        typeof current.timeoutMs === "number";
+
+      if (!hasAnyOverride) {
+        delete this.plugin.settings.aiSummary.providerOverrides[activeProvider];
+      }
+    };
+
     new Setting(containerEl)
       .setName("Model")
       .setDesc(
-        "Model name for the selected provider (e.g. openai/gpt-5.2, gpt-5, claude-sonnet-4.5)",
+        "Model name for the selected provider. Leave blank to use the default model.",
       )
       .addText((text) =>
         text
           .setPlaceholder("openai/gpt-5.2")
-          .setValue(this.plugin.settings.aiSummary.model)
+          .setValue(resolvedProviderConfig.model)
           .onChange(async (value) => {
-            this.plugin.settings.aiSummary.model = value.trim();
+            const trimmedValue = value.trim();
+            const providerOverrides = ensureActiveProviderOverrides();
+
+            if (
+              !trimmedValue ||
+              trimmedValue === this.plugin.settings.aiSummary.model
+            ) {
+              delete providerOverrides.model;
+            } else {
+              providerOverrides.model = trimmedValue;
+            }
+
+            clearProviderOverrideIfEmpty();
             await this.plugin.saveSettings();
           }),
       );
+
+    const createProviderApiKeySetting = (
+      name: string,
+      description: string,
+      value: string,
+      onSave: (nextValue: string) => Promise<void>,
+    ): void => {
+      let apiKeyInputEl: HTMLInputElement | null = null;
+      let isVisible = false;
+
+      const updateVisibility = (button: { setIcon: (icon: string) => void; setTooltip: (tooltip: string) => void; }): void => {
+        if (!apiKeyInputEl) {
+          return;
+        }
+
+        apiKeyInputEl.type = isVisible ? "text" : "password";
+        button.setIcon(isVisible ? "eye-off" : "eye");
+        button.setTooltip(isVisible ? "Hide API key" : "Show API key");
+      };
+
+      new Setting(containerEl)
+        .setName(name)
+        .setDesc(description)
+        .addText((text) => {
+          text
+            .setPlaceholder("Paste API key")
+            .setValue(value)
+            .onChange(async (nextValue) => {
+              await onSave(nextValue.trim());
+            });
+
+          apiKeyInputEl = text.inputEl;
+          apiKeyInputEl.type = "password";
+          apiKeyInputEl.autocomplete = "off";
+          apiKeyInputEl.addClass("rss-dashboard-ai-api-key-input");
+        })
+        .addExtraButton((button) => {
+          button
+            .setIcon("eye")
+            .setTooltip("Show API key")
+            .onClick(() => {
+              isVisible = !isVisible;
+              updateVisibility(button);
+            });
+
+          updateVisibility(button);
+        });
+    };
 
     if (this.plugin.settings.aiSummary.provider === "local") {
       new Setting(containerEl)
@@ -1727,41 +1843,65 @@ export class RssDashboardSettingTab extends PluginSettingTab {
               await this.plugin.saveSettings();
             }),
         );
-    } else {
-      new Setting(containerEl)
-        .setName("Api key")
-        .setDesc(
-          "Stored in plugin settings. For stronger security, migrate to Obsidian SecretStorage in a follow-up.",
-        )
-        .addText((text) =>
-          text
-            .setPlaceholder("Paste API key")
-            .setValue(this.plugin.settings.aiSummary.apiKey)
-            .onChange(async (value) => {
-              this.plugin.settings.aiSummary.apiKey = value.trim();
-              await this.plugin.saveSettings();
-            }),
-        );
+    } else if (this.plugin.settings.aiSummary.provider === "openrouter") {
+      createProviderApiKeySetting(
+        "OpenRouter API key",
+        "Used only when OpenRouter is selected. Stored in plugin settings.",
+        this.plugin.settings.aiSummary.openrouterApiKey,
+        async (nextValue) => {
+          this.plugin.settings.aiSummary.openrouterApiKey = nextValue;
+          await this.plugin.saveSettings();
+        },
+      );
+    } else if (this.plugin.settings.aiSummary.provider === "openai") {
+      createProviderApiKeySetting(
+        "OpenAI API key",
+        "Used only when OpenAI is selected. Stored in plugin settings.",
+        this.plugin.settings.aiSummary.openaiApiKey,
+        async (nextValue) => {
+          this.plugin.settings.aiSummary.openaiApiKey = nextValue;
+          await this.plugin.saveSettings();
+        },
+      );
+    } else if (this.plugin.settings.aiSummary.provider === "claude") {
+      createProviderApiKeySetting(
+        "Claude API key",
+        "Used only when Claude is selected. Stored in plugin settings.",
+        this.plugin.settings.aiSummary.claudeApiKey,
+        async (nextValue) => {
+          this.plugin.settings.aiSummary.claudeApiKey = nextValue;
+          await this.plugin.saveSettings();
+        },
+      );
     }
 
     let aiPromptTemplateInputEl: HTMLTextAreaElement | null = null;
 
-    new Setting(containerEl)
+    const promptTemplateSetting = new Setting(containerEl)
       .setName("Prompt template")
       .setDesc(
-        "Supports placeholders: {{title}}, {{feedTitle}}, {{link}}, {{pubDate}}, {{content}}",
+        "Supports placeholders: {{title}}, {{feedTitle}}, {{link}}, {{pubDate}}, {{content}}. Leave blank to use the default prompt.",
       )
       .addTextArea((text) => {
         text
-          .setValue(this.plugin.settings.aiSummary.promptTemplate)
+          .setValue(resolvedProviderConfig.promptTemplate)
           .onChange(async (value) => {
-            this.plugin.settings.aiSummary.promptTemplate = value;
+            const providerOverrides = ensureActiveProviderOverrides();
+            const fallbackPrompt = this.plugin.settings.aiSummary.promptTemplate;
+            if (!value || value === fallbackPrompt) {
+              delete providerOverrides.promptTemplate;
+            } else {
+              providerOverrides.promptTemplate = value;
+            }
+
+            clearProviderOverrideIfEmpty();
             await this.plugin.saveSettings();
           });
         text.inputEl.rows = 8;
         text.inputEl.addClass("rss-dashboard-ai-prompt-template");
         aiPromptTemplateInputEl = text.inputEl;
       });
+    promptTemplateSetting.settingEl.addClass("rss-dashboard-prompt-template-setting");
 
     const aiPromptBtnRow = containerEl.createDiv({
       cls: "rss-dashboard-template-btn-row",
@@ -1771,26 +1911,35 @@ export class RssDashboardSettingTab extends PluginSettingTab {
       cls: "rss-dashboard-template-btn",
     });
     resetAiPromptBtn.onclick = async () => {
-      this.plugin.settings.aiSummary.promptTemplate =
-        DEFAULT_SETTINGS.aiSummary.promptTemplate;
+      const providerOverrides = ensureActiveProviderOverrides();
+      delete providerOverrides.promptTemplate;
+      clearProviderOverrideIfEmpty();
       if (aiPromptTemplateInputEl) {
         aiPromptTemplateInputEl.value =
+          this.plugin.settings.aiSummary.promptTemplate ||
           DEFAULT_SETTINGS.aiSummary.promptTemplate;
       }
       await this.plugin.saveSettings();
-      new Notice("AI prompt template reset to default");
+      new Notice("Prompt template reset to default for this provider");
     };
 
     new Setting(containerEl)
       .setName("Max input characters")
-      .setDesc("Limit article text sent to provider")
+      .setDesc("Limit article text sent to provider. This value is saved per selected provider.")
       .addSlider((slider) =>
         slider
           .setLimits(1000, 30000, 500)
-          .setValue(this.plugin.settings.aiSummary.maxInputChars)
+          .setValue(resolvedProviderConfig.maxInputChars)
           .setDynamicTooltip()
           .onChange(async (value) => {
-            this.plugin.settings.aiSummary.maxInputChars = value;
+            const providerOverrides = ensureActiveProviderOverrides();
+            if (value === this.plugin.settings.aiSummary.maxInputChars) {
+              delete providerOverrides.maxInputChars;
+            } else {
+              providerOverrides.maxInputChars = value;
+            }
+
+            clearProviderOverrideIfEmpty();
             await this.plugin.saveSettings();
           }),
       );
@@ -1801,10 +1950,17 @@ export class RssDashboardSettingTab extends PluginSettingTab {
       .addSlider((slider) =>
         slider
           .setLimits(64, 1024, 16)
-          .setValue(this.plugin.settings.aiSummary.maxOutputTokens)
+          .setValue(resolvedProviderConfig.maxOutputTokens)
           .setDynamicTooltip()
           .onChange(async (value) => {
-            this.plugin.settings.aiSummary.maxOutputTokens = value;
+            const providerOverrides = ensureActiveProviderOverrides();
+            if (value === this.plugin.settings.aiSummary.maxOutputTokens) {
+              delete providerOverrides.maxOutputTokens;
+            } else {
+              providerOverrides.maxOutputTokens = value;
+            }
+
+            clearProviderOverrideIfEmpty();
             await this.plugin.saveSettings();
           }),
       );
@@ -1815,13 +1971,21 @@ export class RssDashboardSettingTab extends PluginSettingTab {
       .addText((text) =>
         text
           .setPlaceholder("30000")
-          .setValue(String(this.plugin.settings.aiSummary.timeoutMs))
+          .setValue(String(resolvedProviderConfig.timeoutMs))
           .onChange(async (value) => {
             const next = Number(value);
             if (!Number.isFinite(next) || next < 1000) {
               return;
             }
-            this.plugin.settings.aiSummary.timeoutMs = Math.round(next);
+            const rounded = Math.round(next);
+            const providerOverrides = ensureActiveProviderOverrides();
+            if (rounded === this.plugin.settings.aiSummary.timeoutMs) {
+              delete providerOverrides.timeoutMs;
+            } else {
+              providerOverrides.timeoutMs = rounded;
+            }
+
+            clearProviderOverrideIfEmpty();
             await this.plugin.saveSettings();
           }),
       );

@@ -241,11 +241,29 @@ export type AiSummaryProvider =
 
 export type AiSummaryLocalMode = "ollama" | "openai-compatible";
 
+export interface AiSummaryProviderOverrides {
+  model?: string;
+  promptTemplate?: string;
+  maxInputChars?: number;
+  maxOutputTokens?: number;
+  timeoutMs?: number;
+}
+
+export interface AiSummaryProviderOverridesMap {
+  openrouter?: AiSummaryProviderOverrides;
+  openai?: AiSummaryProviderOverrides;
+  claude?: AiSummaryProviderOverrides;
+  local?: AiSummaryProviderOverrides;
+  kilo?: AiSummaryProviderOverrides;
+}
+
 export interface AiSummarySettings {
   enabled: boolean;
   provider: AiSummaryProvider;
   model: string;
-  apiKey: string;
+  openrouterApiKey: string;
+  openaiApiKey: string;
+  claudeApiKey: string;
   localMode: AiSummaryLocalMode;
   localBaseUrl: string;
   promptTemplate: string;
@@ -253,6 +271,7 @@ export interface AiSummarySettings {
   maxOutputTokens: number;
   timeoutMs: number;
   updateCardSummary: boolean;
+  providerOverrides: AiSummaryProviderOverridesMap;
 }
 
 export interface RssDashboardSettings {
@@ -413,7 +432,9 @@ guid: "{{guid}}"
     enabled: false,
     provider: "openrouter",
     model: "openai/gpt-5.2",
-    apiKey: "",
+    openrouterApiKey: "",
+    openaiApiKey: "",
+    claudeApiKey: "",
     localMode: "ollama",
     localBaseUrl: "http://localhost:11434",
     promptTemplate:
@@ -422,6 +443,7 @@ guid: "{{guid}}"
     maxOutputTokens: 280,
     timeoutMs: 30000,
     updateCardSummary: false,
+    providerOverrides: {},
   },
   display: {
     showCoverImage: true,
