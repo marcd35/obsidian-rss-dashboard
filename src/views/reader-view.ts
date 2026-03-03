@@ -1034,15 +1034,26 @@ export class ReaderView extends ItemView {
         this.currentItem,
         promptTemplateOverride,
       );
-      const updates: Partial<FeedItem> = {
+      const displayUpdates: Partial<FeedItem> = {
         aiSummaryText: result.summary,
         aiSummaryGeneratedAt: Date.now(),
         aiSummaryProvider: result.provider,
         aiSummaryModel: result.model,
         aiSummaryError: undefined,
       };
-      Object.assign(this.currentItem, updates);
-      this.onArticleUpdate(this.currentItem, updates, true);
+      // Always update in-memory item for reader display
+      Object.assign(this.currentItem, displayUpdates);
+      // Only persist to article/dashboard card if setting is enabled
+      const persistUpdates: Partial<FeedItem> = {
+        aiSummaryError: undefined,
+      };
+      if (this.settings.aiSummary.updateCardSummary) {
+        persistUpdates.aiSummaryText = result.summary;
+        persistUpdates.aiSummaryGeneratedAt = Date.now();
+        persistUpdates.aiSummaryProvider = result.provider;
+        persistUpdates.aiSummaryModel = result.model;
+      }
+      this.onArticleUpdate(this.currentItem, persistUpdates, true);
       new Notice(
         promptTemplateOverride ? "Summary regenerated." : "Summary generated.",
       );
