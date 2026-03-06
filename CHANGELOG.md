@@ -2,19 +2,28 @@
 
 ## [2.2.17] - March 6, 2026
 
+### Added
+
+- Added an optional Media setting to detect YouTube shorts from feed XML.
+- Automatically tag detected shorts as `Youtube short`, while preserving the regular `youtube` media tag.
+
 ### Improved
 
 - Standardized YouTube embed generation through a shared media-service helper.
 - Routed embedded playback through Privacy Enhanced Mode using `youtube-nocookie.com`.
 - Added a visible `Watch on YouTube` handoff from the in-app player.
 - Documented YouTube embed behavior and legal links in the README.
+- Add/Edit Feed validation now distinguishes valid-but-empty feeds with a yellow warning message instead of a generic success state.
 
 ### Fixed
 
 - Fixed YouTube embed Error 153 by setting iframe `referrerpolicy="strict-origin-when-cross-origin"`.
 - Removed unsupported YouTube quality override URL rewriting from the player.
 - Enforced a minimum 200x200 YouTube player surface to better match RMF requirements.
-- Added regression tests for YouTube embed URL generation and feed video-id normalization.
+- Added regression tests for YouTube embed URL generation, feed video-id normalization, and YouTube shorts detection/tagging.
+- Search feeds no longer closes immediately after opening a feed from the filtered list
+- Valid feeds with no published items can now still be added manually instead of being rejected as unusable.
+- Empty-feed validation/import messaging is now explicit, and the Add Feed modal no longer closes after a failed save attempt.
 
 ---
 

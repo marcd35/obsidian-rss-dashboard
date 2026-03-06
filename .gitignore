@@ -16,8 +16,14 @@ release/
 
 # testfiles
 test_files
+!test_files/
+test_files/*
+!test_files/unit/
+test_files/unit/*
+!test_files/unit/feed-empty-validation.test.ts
 
 # agent
 docs/archive
 CLAUDE.md
 agent.md
+AGENTS.md
