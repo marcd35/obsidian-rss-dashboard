@@ -49,6 +49,9 @@ function isYouTubePageUrl(url: string): boolean {
   return true;
 }
 
+const EMPTY_FEED_VALIDATION_WARNING =
+  "Feed validation passed, however no content detected.";
+
 export class EditFeedModal extends Modal {
   feed: Feed;
   plugin: RssDashboardPlugin;
@@ -186,12 +189,20 @@ export class EditFeedModal extends Modal {
               }
               if (refs.latestEntryDiv)
                 refs.latestEntryDiv.textContent = latestEntry;
-              status = "OK";
-              // Success state
               if (refs.statusDiv) {
-                refs.statusDiv.textContent = "✅ OK";
                 refs.statusDiv.removeClass("status-loading");
-                refs.statusDiv.addClass("status-ok");
+                refs.statusDiv.removeClass("status-error");
+                refs.statusDiv.removeClass("status-ok");
+                refs.statusDiv.removeClass("rss-dashboard-status-warning");
+                if (feedData.hasEntries) {
+                  status = "OK";
+                  refs.statusDiv.textContent = "✅ OK";
+                  refs.statusDiv.addClass("status-ok");
+                } else {
+                  status = EMPTY_FEED_VALIDATION_WARNING;
+                  refs.statusDiv.textContent = `⚠ ${EMPTY_FEED_VALIDATION_WARNING}`;
+                  refs.statusDiv.addClass("rss-dashboard-status-warning");
+                }
               }
               if (urlInput) {
                 urlInput.addClass("loaded");
@@ -208,6 +219,8 @@ export class EditFeedModal extends Modal {
               if (refs.statusDiv) {
                 refs.statusDiv.textContent = `❌ ${errorMsg}`;
                 refs.statusDiv.removeClass("status-loading");
+                refs.statusDiv.removeClass("status-ok");
+                refs.statusDiv.removeClass("rss-dashboard-status-warning");
                 refs.statusDiv.addClass("status-error");
               }
             } finally {
@@ -905,12 +918,20 @@ export class AddFeedModal extends Modal {
               }
               if (refs.latestEntryDiv)
                 refs.latestEntryDiv.textContent = latestEntry;
-              status = "OK";
-              // Success state
               if (refs.statusDiv) {
-                refs.statusDiv.textContent = "✅ OK";
                 refs.statusDiv.removeClass("status-loading");
-                refs.statusDiv.addClass("status-ok");
+                refs.statusDiv.removeClass("status-error");
+                refs.statusDiv.removeClass("status-ok");
+                refs.statusDiv.removeClass("rss-dashboard-status-warning");
+                if (feedData.hasEntries) {
+                  status = "OK";
+                  refs.statusDiv.textContent = "✅ OK";
+                  refs.statusDiv.addClass("status-ok");
+                } else {
+                  status = EMPTY_FEED_VALIDATION_WARNING;
+                  refs.statusDiv.textContent = `⚠ ${EMPTY_FEED_VALIDATION_WARNING}`;
+                  refs.statusDiv.addClass("rss-dashboard-status-warning");
+                }
               }
               if (urlInput) {
                 urlInput.addClass("loaded");
@@ -960,6 +981,8 @@ export class AddFeedModal extends Modal {
               if (refs.statusDiv) {
                 refs.statusDiv.textContent = `❌ ${errorMsg}`;
                 refs.statusDiv.removeClass("status-loading");
+                refs.statusDiv.removeClass("status-ok");
+                refs.statusDiv.removeClass("rss-dashboard-status-warning");
                 refs.statusDiv.addClass("status-error");
               }
             } finally {
@@ -1169,7 +1192,7 @@ export class AddFeedModal extends Modal {
         if (this.plugin && finalFolder) {
           await this.plugin.ensureFolderExists(finalFolder);
         }
-        await this.onAdd(
+        const added = await this.onAdd(
           title,
           url,
           finalFolder,
@@ -1178,10 +1201,12 @@ export class AddFeedModal extends Modal {
           scanInterval,
           feedFilters,
         ).catch(() => {
-          /* ignore */
+          return false;
         });
-        this.onSave();
-        this.close();
+        if (added !== false) {
+          this.onSave();
+          this.close();
+        }
       })();
     };
     cancelBtn.onclick = () => this.close();
