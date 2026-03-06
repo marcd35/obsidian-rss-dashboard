@@ -2821,6 +2821,13 @@ export class ArticleList {
         }, 200);
       });
 
+      tagLabel.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        tagCheckbox.checked = !tagCheckbox.checked;
+        tagCheckbox.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+
       editButton.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
