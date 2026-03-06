@@ -39,6 +39,7 @@ import {
   getFeedErrorMessage,
 } from "./src/services/feed-parser";
 import { ArticleSaver } from "./src/services/article-saver";
+import { AutoTagService } from "./src/services/auto-tag-service";
 import { OpmlManager } from "./src/services/opml-manager";
 import { MediaService } from "./src/services/media-service";
 import { sleep, setCssProps } from "./src/utils/platform-utils";
@@ -92,6 +93,44 @@ export default class RssDashboardPlugin extends Plugin {
         view.refresh();
       }
     }
+  }
+
+  public async refreshReaderViews(): Promise<void> {
+    const leaves = this.app.workspace.getLeavesOfType(RSS_READER_VIEW_TYPE);
+    for (const leaf of leaves) {
+      if (requireApiVersion("1.7.2")) {
+        await leaf.loadIfDeferred();
+      }
+      const view = leaf.view;
+      if (!(view instanceof ReaderView)) {
+        continue;
+      }
+
+      try {
+        const readerState = view as unknown as {
+          currentItem?: FeedItem | null;
+          relatedItems?: FeedItem[];
+          displayItem?: (
+            item: FeedItem,
+            relatedItems?: FeedItem[],
+          ) => Promise<void>;
+        };
+
+        if (readerState.currentItem && typeof readerState.displayItem === "function") {
+          await readerState.displayItem(
+            readerState.currentItem,
+            readerState.relatedItems ?? [],
+          );
+        }
+      } catch {
+        // Best effort only: reader refresh should not block settings persistence.
+      }
+    }
+  }
+
+  public async refreshOpenViews(): Promise<void> {
+    await this.refreshDashboardViews();
+    await this.refreshReaderViews();
   }
 
   public notifyFiltersUpdated(payload: FiltersUpdatedEventPayload): void {
@@ -164,10 +203,7 @@ export default class RssDashboardPlugin extends Plugin {
     }
 
     try {
-      this.feedParser = new FeedParser(
-        this.settings.media,
-        this.settings.availableTags,
-      );
+      this.feedParser = new FeedParser(this.settings);
       this.articleSaver = new ArticleSaver(
         this.app,
         this.settings.articleSaving,
@@ -317,6 +353,14 @@ export default class RssDashboardPlugin extends Plugin {
         name: "Apply feed limits to all feeds",
         callback: () => {
           void this.applyFeedLimitsToAllFeeds();
+        },
+      });
+
+      this.addCommand({
+        id: "reapply-auto-tag-rules",
+        name: "Reapply auto-tag rules to all articles",
+        callback: () => {
+          void this.reapplyAutoTagRulesToAllArticles();
         },
       });
 
@@ -1747,6 +1791,19 @@ export default class RssDashboardPlugin extends Plugin {
         );
       }
 
+      if (!this.settings.autoTagging) {
+        this.settings.autoTagging = DEFAULT_SETTINGS.autoTagging;
+      } else {
+        this.settings.autoTagging = Object.assign(
+          {},
+          DEFAULT_SETTINGS.autoTagging,
+          this.settings.autoTagging,
+        );
+        if (!Array.isArray(this.settings.autoTagging.rules)) {
+          this.settings.autoTagging.rules = [];
+        }
+      }
+
       // Ensure display settings are properly initialized
       if (!this.settings.display) {
         this.settings.display = DEFAULT_SETTINGS.display;
@@ -1840,7 +1897,7 @@ export default class RssDashboardPlugin extends Plugin {
           };
         }
       }
-
+      AutoTagService.syncYouTubeShortsPreset(this.settings);
       await this.repairMissingFolderPathsForFeeds();
     } catch (error) {
       new Notice(
@@ -2132,6 +2189,17 @@ export default class RssDashboardPlugin extends Plugin {
       this.db.saveAllTags(this.settings.availableTags);
       await this.db.forceSave();
     }
+  }
+
+  async reapplyAutoTagRulesToAllArticles(): Promise<void> {
+    AutoTagService.syncYouTubeShortsPreset(this.settings);
+    const result = AutoTagService.reapplyToAllFeeds(this.settings);
+    await this.saveSettings();
+    await this.refreshOpenViews();
+
+    new Notice(
+      `Auto-tag reapply complete: scanned ${result.scannedItems} items, updated ${result.changedItems}, added ${result.tagsAdded}, removed ${result.tagsRemoved}`,
+    );
   }
 
   onunload() {

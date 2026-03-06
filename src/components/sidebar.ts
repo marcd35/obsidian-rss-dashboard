@@ -7,7 +7,7 @@ import {
   FeedFilterSettings,
 } from "../types/types";
 import { AddFeedModal, EditFeedModal } from "../modals/feed-manager-modal";
-import { showEditTagModal } from "../utils/tag-utils";
+import { deleteTagFromSettings, showEditTagModal } from "../utils/tag-utils";
 import type RssDashboardPlugin from "../../main";
 
 export interface SidebarOptions {
@@ -1545,20 +1545,7 @@ export class Sidebar {
   }
 
   private deleteTag(tag: Tag): void {
-    const tagIndex = this.settings.availableTags.findIndex(
-      (t) => t.name === tag.name,
-    );
-    if (tagIndex !== -1) {
-      this.settings.availableTags.splice(tagIndex, 1);
-    }
-
-    this.settings.feeds.forEach((feed) => {
-      feed.items.forEach((item) => {
-        if (item.tags) {
-          item.tags = item.tags.filter((t) => t.name !== tag.name);
-        }
-      });
-    });
+    deleteTagFromSettings(this.settings, tag);
 
     void this.plugin.saveSettings();
 

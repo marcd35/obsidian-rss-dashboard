@@ -53,6 +53,7 @@ export interface FeedItem {
     fileSize?: string;
     authors?: string;
   };
+  autoTagState?: AutoTagStateEntry[];
 }
 
 export interface Feed {
@@ -97,6 +98,42 @@ export interface FeedMetadata {
 export interface Tag {
   name: string;
   color: string;
+}
+
+export interface AutoTagStateEntry {
+  tagName: string;
+  ruleIds: string[];
+}
+
+export type AutoTagTextTarget = "title" | "summary" | "content";
+export type AutoTagUrlTarget = "itemLink" | "feedUrl";
+
+export interface AutoTagCondition {
+  id: string;
+  type: "keyword" | "phrase" | "url-pattern";
+  value: string;
+  enabled: boolean;
+  caseSensitive: boolean;
+  textTargets: AutoTagTextTarget[];
+  urlTargets: AutoTagUrlTarget[];
+  urlPatternMode?: "contains" | "wildcard";
+  createdAt: number;
+}
+
+export interface AutoTagRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  source: "custom" | "preset";
+  presetKey?: "youtube-shorts";
+  tagName: string;
+  matchLogic: "all" | "any";
+  conditions: AutoTagCondition[];
+  createdAt: number;
+}
+
+export interface AutoTagSettings {
+  rules: AutoTagRule[];
 }
 
 export interface Folder {
@@ -276,6 +313,7 @@ export interface RssDashboardSettings {
   useWebViewer: boolean;
 
   media: MediaSettings;
+  autoTagging: AutoTagSettings;
   articleSaving: ArticleSavingSettings;
   display: DisplaySettings;
   highlights: HighlightSettings;
@@ -354,6 +392,9 @@ export const DEFAULT_SETTINGS: RssDashboardSettings = {
     defaultSmallwebTag: "smallweb",
     openInSplitView: true,
     podcastTheme: "obsidian",
+  },
+  autoTagging: {
+    rules: [],
   },
   articleSaving: {
     addSavedTag: true,

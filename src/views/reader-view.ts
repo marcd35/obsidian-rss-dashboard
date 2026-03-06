@@ -25,7 +25,7 @@ import { Readability } from "@mozilla/readability";
 import TurndownService from "turndown";
 import { ensureUtf8Meta } from "../utils/platform-utils";
 import { RSS_DASHBOARD_VIEW_TYPE } from "./dashboard-view";
-import { showEditTagModal } from "../utils/tag-utils";
+import { deleteTagFromSettings, showEditTagModal } from "../utils/tag-utils";
 
 export const RSS_READER_VIEW_TYPE = "rss-reader-view";
 
@@ -1127,18 +1127,14 @@ export class ReaderView extends ItemView {
       updateTagSeparatorVisibility();
     };
     const deleteTagFromProfile = (tag: Tag): void => {
-      const tagIndex = this.settings.availableTags.findIndex(
-        (t) => t.name === tag.name,
-      );
-      if (tagIndex === -1) return;
-      this.settings.availableTags.splice(tagIndex, 1);
-      this.settings.feeds.forEach((feed) => {
-        feed.items.forEach((feedItem) => {
-          if (feedItem.tags) {
-            feedItem.tags = feedItem.tags.filter((t) => t.name !== tag.name);
-          }
-        });
-      });
+      if (
+        !this.settings.availableTags.some(
+          (existingTag) => existingTag.name === tag.name,
+        )
+      ) {
+        return;
+      }
+      deleteTagFromSettings(this.settings, tag);
       if (item.tags?.some((t) => t.name === tag.name)) {
         item.tags = item.tags.filter((t) => t.name !== tag.name);
       }
