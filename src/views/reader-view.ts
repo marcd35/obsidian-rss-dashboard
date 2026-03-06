@@ -1100,14 +1100,9 @@ export class ReaderView extends ItemView {
         this.toggleTag(item, tag, isChecked);
       });
 
-      tagItem.addEventListener("click", (e) => {
-        if (
-          e.target === tagCheckbox ||
-          (e.target instanceof Element &&
-            e.target.closest(".rss-dashboard-tag-action-button"))
-        ) {
-          return;
-        }
+      tagLabel.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         tagCheckbox.checked = !tagCheckbox.checked;
         this.toggleTag(item, tag, tagCheckbox.checked);
       });

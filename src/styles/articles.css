@@ -426,12 +426,15 @@ body:not(.theme-dark) .rss-dashboard-view-toggle button.active svg {
 }
 
 .rss-dashboard-tag-label {
+	display: flex;
+	align-items: center;
 	padding: 1px 6px;
 	border-radius: 3px;
 	font-size: 11px;
 	color: #fff;
 	cursor: pointer;
 	flex-grow: 1;
+	min-height: 24px;
 }
 
 .rss-dashboard-tag-action-button {
