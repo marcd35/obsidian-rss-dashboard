@@ -25,6 +25,7 @@ import { Readability } from "@mozilla/readability";
 import TurndownService from "turndown";
 import { ensureUtf8Meta } from "../utils/platform-utils";
 import { RSS_DASHBOARD_VIEW_TYPE } from "./dashboard-view";
+import { showEditTagModal } from "../utils/tag-utils";
 
 export const RSS_READER_VIEW_TYPE = "rss-reader-view";
 
@@ -1030,6 +1031,13 @@ export class ReaderView extends ItemView {
       const hasTags = this.settings.availableTags.length > 0;
       tagSeparator.style.display = hasTags ? "" : "none";
     };
+    const rerenderTagItems = (): void => {
+      tagsListContainer.empty();
+      for (const nextTag of this.settings.availableTags) {
+        appendTagItem(nextTag);
+      }
+      updateTagSeparatorVisibility();
+    };
     const deleteTagFromProfile = (tag: Tag): void => {
       const tagIndex = this.settings.availableTags.findIndex(
         (t) => t.name === tag.name,
@@ -1046,6 +1054,7 @@ export class ReaderView extends ItemView {
       if (item.tags?.some((t) => t.name === tag.name)) {
         item.tags = item.tags.filter((t) => t.name !== tag.name);
       }
+      this.syncCurrentItemTagDisplay();
       this.onArticleUpdate(item, {}, false);
       new Notice(`Tag "${tag.name}" deleted successfully!`);
       updateTagSeparatorVisibility();
@@ -1073,8 +1082,14 @@ export class ReaderView extends ItemView {
       });
       tagLabel.style.setProperty("--tag-color", tag.color);
 
+      const editButton = tagItem.createEl("button", {
+        cls: "rss-dashboard-tag-action-button rss-dashboard-tag-edit-button",
+        attr: { title: `Edit "${tag.name}" tag`, "aria-label": "Edit tag" },
+      });
+      setIcon(editButton, "pencil");
+
       const deleteButton = tagItem.createEl("button", {
-        cls: "rss-dashboard-tag-delete-button",
+        cls: "rss-dashboard-tag-action-button rss-dashboard-tag-delete-button",
         attr: { title: `Delete "${tag.name}" tag`, "aria-label": "Delete tag" },
       });
       setIcon(deleteButton, "trash");
@@ -1089,12 +1104,26 @@ export class ReaderView extends ItemView {
         if (
           e.target === tagCheckbox ||
           (e.target instanceof Element &&
-            e.target.closest(".rss-dashboard-tag-delete-button"))
+            e.target.closest(".rss-dashboard-tag-action-button"))
         ) {
           return;
         }
         tagCheckbox.checked = !tagCheckbox.checked;
         this.toggleTag(item, tag, tagCheckbox.checked);
+      });
+
+      editButton.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        showEditTagModal({
+          settings: this.settings,
+          tag,
+          onSave: async () => {
+            this.syncCurrentItemTagDisplay();
+            rerenderTagItems();
+            this.onArticleUpdate(item, {}, false);
+          },
+        });
       });
 
       deleteButton.addEventListener("click", (e) => {
@@ -1106,6 +1135,7 @@ export class ReaderView extends ItemView {
 
       tagItem.appendChild(tagCheckbox);
       tagItem.appendChild(tagLabel);
+      tagItem.appendChild(editButton);
       tagItem.appendChild(deleteButton);
     };
 
@@ -1300,6 +1330,40 @@ export class ReaderView extends ItemView {
 
     // Notify parent to persist the change
     this.onArticleUpdate(item, { tags: [...item.tags] }, false);
+  }
+
+  private syncCurrentItemTagDisplay(): void {
+    const item = this.currentItem;
+    if (!item) {
+      return;
+    }
+
+    const headerContainer = this.readingContainer.querySelector<HTMLElement>(
+      ".rss-reader-article-header",
+    );
+    if (!headerContainer) {
+      return;
+    }
+
+    headerContainer
+      .querySelectorAll<HTMLElement>(".rss-reader-tags")
+      .forEach((element) => element.remove());
+
+    if (!item.tags || item.tags.length === 0) {
+      return;
+    }
+
+    const tagsContainer = headerContainer.createDiv({
+      cls: "rss-reader-tags",
+    });
+
+    item.tags.forEach((tag) => {
+      const tagElement = tagsContainer.createDiv({
+        cls: "rss-reader-tag",
+      });
+      tagElement.textContent = tag.name;
+      tagElement.style.setProperty("--tag-color", tag.color);
+    });
   }
 
   private updateToggleButtons(): void {
