@@ -1,5 +1,23 @@
 # RSS Dashboard - Changelog
 
+## [2.2.17] - March 6, 2026
+
+### Improved
+
+- Standardized YouTube embed generation through a shared media-service helper.
+- Routed embedded playback through Privacy Enhanced Mode using `youtube-nocookie.com`.
+- Added a visible `Watch on YouTube` handoff from the in-app player.
+- Documented YouTube embed behavior and legal links in the README.
+
+### Fixed
+
+- Fixed YouTube embed Error 153 by setting iframe `referrerpolicy="strict-origin-when-cross-origin"`.
+- Removed unsupported YouTube quality override URL rewriting from the player.
+- Enforced a minimum 200x200 YouTube player surface to better match RMF requirements.
+- Added regression tests for YouTube embed URL generation and feed video-id normalization.
+
+---
+
 ## [2.2.16] - March 5, 2026
 
 ### Added
