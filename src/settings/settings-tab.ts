@@ -1359,6 +1359,18 @@ export class RssDashboardSettingTab extends PluginSettingTab {
           }),
       );
 
+    new Setting(containerEl)
+      .setName("Detect YouTube shorts")
+      .setDesc("Automatically tag detected YouTube shorts from feed XML.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.media.detectYouTubeShorts || false)
+          .onChange(async (value) => {
+            this.plugin.settings.media.detectYouTubeShorts = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
     new Setting(containerEl).setName("Podcast").setHeading();
 
     new Setting(containerEl)
