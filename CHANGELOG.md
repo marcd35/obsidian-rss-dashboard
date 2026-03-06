@@ -24,6 +24,7 @@
 - Search feeds no longer closes immediately after opening a feed from the filtered list
 - Valid feeds with no published items can now still be added manually instead of being rejected as unusable.
 - Empty-feed validation/import messaging is now explicit, and the Add Feed modal no longer closes after a failed save attempt.
+- Fixed card-view tag overflow by moving tags into a footer-adjacent single-row strip with `+N` compaction, while restoring normal auto-grid density and bounded preview media sizing.
 
 ---
 
