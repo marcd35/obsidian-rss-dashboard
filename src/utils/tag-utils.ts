@@ -43,7 +43,7 @@ export function showEditTagModal({
   onSave,
 }: ShowEditTagModalOptions): void {
   const modal = document.body.createDiv({
-    cls: "rss-dashboard-modal rss-dashboard-modal-container",
+    cls: "rss-dashboard-modal rss-dashboard-modal-container rss-dashboard-tag-edit-modal",
   });
 
   const modalContent = modal.createDiv({

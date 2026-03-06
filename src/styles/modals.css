@@ -166,6 +166,10 @@
   border: 1px solid var(--background-modifier-border-hover);
 }
 
+.rss-dashboard-tag-edit-modal {
+  z-index: 100002 !important;
+}
+
 /* Close button positioning for modal container */
 .rss-dashboard-modal-container .modal-close-button {
   position: absolute;
