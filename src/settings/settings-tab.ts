@@ -20,7 +20,10 @@ import {
   VaultFolderSuggest,
 } from "../components/folder-suggest";
 import { ImportOpmlModal } from "../modals/import-opml-modal";
+import { renderAutoTagRuleEditor } from "../components/auto-tag-rule-editor";
 import { renderKeywordFilterEditor } from "../components/keyword-filter-editor";
+import { AutoTagService } from "../services/auto-tag-service";
+import { deleteTagFromSettings } from "../utils/tag-utils";
 
 class TemplateNameModal extends Modal {
   private result: string | null = null;
@@ -184,6 +187,59 @@ class ConfirmDeleteModal extends Modal {
       .addButton((btn) =>
         btn
           .setButtonText("Delete")
+          .setWarning()
+          .onClick(() => {
+            this.confirmed = true;
+            this.close();
+          }),
+      );
+  }
+
+  onClose() {
+    const { contentEl } = this;
+    contentEl.empty();
+    if (this.resolvePromise) {
+      this.resolvePromise(this.confirmed);
+    }
+  }
+
+  waitForClose(): Promise<boolean> {
+    return new Promise((resolve) => {
+      this.resolvePromise = resolve;
+    });
+  }
+}
+
+class AutoTagScanConfirmationModal extends Modal {
+  private confirmed = false;
+  private resolvePromise: ((value: boolean) => void) | null = null;
+
+  constructor(app: App) {
+    super(app);
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    contentEl.createEl("h2", { text: "Scan and apply auto-tagging?" });
+    contentEl.createEl("p", {
+      text: "This is an experimental feature and may cause system lockups on vaults with many feeds.",
+    });
+    contentEl.createEl("p", {
+      text: "It is recommended to back up data.json first. Do you want to proceed?",
+    });
+
+    new Setting(contentEl)
+      .addButton((btn) =>
+        btn.setButtonText("Cancel").onClick(() => {
+          this.confirmed = false;
+          this.close();
+        }),
+      )
+      .addButton((btn) =>
+        btn
+          .setButtonText("Proceed")
           .setWarning()
           .onClick(() => {
             this.confirmed = true;
@@ -1359,18 +1415,6 @@ export class RssDashboardSettingTab extends PluginSettingTab {
           }),
       );
 
-    new Setting(containerEl)
-      .setName("Detect YouTube shorts")
-      .setDesc("Automatically tag detected YouTube shorts from feed XML.")
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.media.detectYouTubeShorts || false)
-          .onChange(async (value) => {
-            this.plugin.settings.media.detectYouTubeShorts = value;
-            await this.plugin.saveSettings();
-          }),
-      );
-
     new Setting(containerEl).setName("Podcast").setHeading();
 
     new Setting(containerEl)
@@ -2210,74 +2254,262 @@ export class RssDashboardSettingTab extends PluginSettingTab {
   }
 
   private createTagsSettings(containerEl: HTMLElement): void {
-    const tagsContainer = containerEl.createDiv({
+    const tagsPanel = containerEl.createDiv({
+      cls: "rss-dashboard-tags-panel",
+    });
+    const searchWrapper = tagsPanel.createDiv({
+      cls: "rss-dashboard-tags-search",
+    });
+    const searchInput = searchWrapper.createEl("input", {
+      type: "search",
+      placeholder: "Search defined tags...",
+    });
+    const clearSearchButton = searchWrapper.createEl("button", {
+      cls: "rss-dashboard-tags-search-clear",
+      attr: {
+        type: "button",
+        "aria-label": "Clear tag search",
+      },
+    });
+    clearSearchButton.createSpan({ text: "×" });
+    const tagsContainer = tagsPanel.createDiv({
       cls: "rss-dashboard-tags-container",
     });
 
-    for (let i = 0; i < this.plugin.settings.availableTags.length; i++) {
-      const tag = this.plugin.settings.availableTags[i];
+    const syncSearchUi = (): void => {
+      clearSearchButton.toggleClass(
+        "is-visible",
+        searchInput.value.trim().length > 0,
+      );
+    };
 
-      new Setting(tagsContainer)
-        .setName(tag.name)
-        .addColorPicker((colorPicker) =>
-          colorPicker.setValue(tag.color).onChange(async (value) => {
-            this.plugin.settings.availableTags[i].color = value;
-            await this.plugin.saveSettings();
-            const view = await this.plugin.getActiveDashboardView();
-            if (view) {
-              await this.app.workspace.revealLeaf(view.leaf);
-              view.render();
-            }
-          }),
-        )
-        .addButton((button) =>
-          button
-            .setIcon("trash")
-            .setTooltip("Delete tag")
-            .onClick(async () => {
-              this.plugin.settings.availableTags.splice(i, 1);
+    const renderTagRows = (query = ""): void => {
+      tagsContainer.empty();
+
+      const normalizedQuery = query.trim().toLowerCase();
+      const visibleTags = this.plugin.settings.availableTags.filter((tag) =>
+        !normalizedQuery || tag.name.toLowerCase().includes(normalizedQuery),
+      );
+
+      if (visibleTags.length === 0) {
+        tagsContainer.createDiv({
+          cls: "rss-dashboard-tags-empty",
+          text:
+            normalizedQuery.length > 0
+              ? "No tags match your search."
+              : "No tags defined yet.",
+        });
+        return;
+      }
+
+      visibleTags.forEach((tag, visibleIndex) => {
+        const tagSetting = new Setting(tagsContainer).setName(tag.name);
+        tagSetting.settingEl.addClass("rss-dashboard-tag-row");
+        if (visibleIndex === 0) {
+          tagSetting.settingEl.addClass("rss-dashboard-tag-row-first");
+        }
+
+        tagSetting
+          .addColorPicker((colorPicker) =>
+            colorPicker.setValue(tag.color).onChange(async (value) => {
+              const tagIndex = this.plugin.settings.availableTags.findIndex(
+                (candidate) => candidate === tag,
+              );
+              if (tagIndex === -1) {
+                return;
+              }
+
+              this.plugin.settings.availableTags[tagIndex].color = value;
               await this.plugin.saveSettings();
-              this.display();
+              const view = await this.plugin.getActiveDashboardView();
+              if (view) {
+                await this.app.workspace.revealLeaf(view.leaf);
+                view.render();
+              }
             }),
-        );
-    }
+          )
+          .addButton((button) =>
+            button
+              .setIcon("trash")
+              .setTooltip("Delete tag")
+              .onClick(async () => {
+                deleteTagFromSettings(this.plugin.settings, tag);
+                await this.plugin.saveSettings();
+                await this.plugin.refreshOpenViews();
+                renderTagRows(searchInput.value);
+              }),
+          );
+      });
+    };
+
+    clearSearchButton.addEventListener("click", () => {
+      searchInput.value = "";
+      syncSearchUi();
+      renderTagRows();
+      searchInput.focus();
+    });
+
+    searchInput.addEventListener("input", () => {
+      syncSearchUi();
+      renderTagRows(searchInput.value);
+    });
+
+    syncSearchUi();
+    renderTagRows();
 
     new Setting(containerEl).setName("Add new tag").setHeading();
 
-    const newTagContainer = containerEl.createDiv();
+    const newTagContainer = containerEl.createDiv({
+      cls: "rss-dashboard-new-tag-block",
+    });
+    const addTagSetting = new Setting(newTagContainer).setName("Tag details");
+    addTagSetting.settingEl.addClass("rss-dashboard-new-tag-setting");
+    const addTagError = newTagContainer.createDiv({
+      cls: "rss-dashboard-new-tag-error",
+    });
 
-    const tagNameSetting = new Setting(newTagContainer)
-      .setName("Tag name")
-      .addText((text) => text.setPlaceholder("Enter tag name"));
+    let tagNameInput: HTMLInputElement | null = null;
+    let clearAddTagButton: HTMLButtonElement | null = null;
+    let selectedTagColor = "#3498db";
 
-    const tagColorSetting = new Setting(newTagContainer)
-      .setName("Tag color")
-      .addColorPicker((colorPicker) => colorPicker.setValue("#3498db"));
+    const setAddTagError = (message: string): void => {
+      addTagError.setText(message);
+      addTagError.toggleClass("is-visible", message.length > 0);
+    };
 
-    new Setting(newTagContainer).addButton((button) =>
-      button.setButtonText("Add tag").onClick(async () => {
-        const nameInput = tagNameSetting.components[0] as unknown as {
-          inputEl: HTMLInputElement;
-        };
-        const name = nameInput.inputEl.value;
-        const colorPicker = tagColorSetting.components[0] as unknown as {
-          getValue: () => string;
-        };
-        const color = colorPicker.getValue();
+    const syncAddTagInputUi = (): void => {
+      clearAddTagButton?.toggleClass(
+        "is-visible",
+        (tagNameInput?.value.trim().length || 0) > 0,
+      );
+    };
 
-        if (!name) {
-          return;
+    addTagSetting
+      .addText((text) => {
+        text.setPlaceholder("Enter tag name");
+        tagNameInput = text.inputEl;
+        const parentEl = text.inputEl.parentElement;
+        const inputWrapper = parentEl?.createDiv({
+          cls: "rss-dashboard-inline-input-wrap",
+        });
+        if (inputWrapper) {
+          inputWrapper.appendChild(text.inputEl);
+          clearAddTagButton = inputWrapper.createEl("button", {
+            cls: "rss-dashboard-inline-input-clear",
+            attr: {
+              type: "button",
+              "aria-label": "Clear new tag name",
+            },
+          });
+          clearAddTagButton.createSpan({ text: "×" });
+          clearAddTagButton.addEventListener("click", () => {
+            if (!tagNameInput) {
+              return;
+            }
+
+            tagNameInput.value = "";
+            setAddTagError("");
+            syncAddTagInputUi();
+            tagNameInput.focus();
+          });
         }
 
-        this.plugin.settings.availableTags.push({
-          name,
-          color,
-        });
+        text.onChange((value) => {
+          const trimmedValue = value.trim();
+          syncAddTagInputUi();
+          if (!trimmedValue) {
+            setAddTagError("");
+            return;
+          }
 
+          const duplicateExists = this.plugin.settings.availableTags.some(
+            (tag) => tag.name.toLowerCase() === trimmedValue.toLowerCase(),
+          );
+          setAddTagError(duplicateExists ? "A tag with this name already exists." : "");
+        });
+      })
+      .addColorPicker((colorPicker) =>
+        colorPicker.setValue(selectedTagColor).onChange((value) => {
+          selectedTagColor = value;
+        }),
+      )
+      .addButton((button) => {
+        button
+          .setButtonText("Add new tag")
+          .setCta()
+          .onClick(async () => {
+            const name = tagNameInput?.value.trim() || "";
+            if (!name) {
+              setAddTagError("");
+              return;
+            }
+
+            const duplicateExists = this.plugin.settings.availableTags.some(
+              (tag) => tag.name.toLowerCase() === name.toLowerCase(),
+            );
+            if (duplicateExists) {
+              setAddTagError("A tag with this name already exists.");
+              return;
+            }
+
+            setAddTagError("");
+
+            this.plugin.settings.availableTags.push({
+              name,
+              color: selectedTagColor,
+            });
+
+            await this.plugin.saveSettings();
+            this.display();
+          });
+
+        button.buttonEl.addClass("rss-dashboard-add-tag-button");
+      });
+
+    syncAddTagInputUi();
+
+    new Setting(containerEl).setName("Auto-tagging rules").setHeading();
+    const autoTagSettingsSurface = containerEl.createDiv({
+      cls: "rss-auto-tag-settings-surface",
+    });
+
+    new Setting(autoTagSettingsSurface)
+      .setName("Auto-tag YouTube shorts")
+      .setDesc("Automatically tag detected YouTube shorts from feed XML.")
+      .setClass("rss-auto-tag-preset-setting")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.media.detectYouTubeShorts || false)
+          .onChange(async (value) => {
+            this.plugin.settings.media.detectYouTubeShorts = value;
+            AutoTagService.syncYouTubeShortsPreset(this.plugin.settings);
+            await this.plugin.saveSettings();
+            await this.plugin.refreshOpenViews();
+          }),
+      );
+
+    const autoTagEditorContainer = autoTagSettingsSurface.createDiv({
+      cls: "rss-auto-tag-rule-editor",
+    });
+
+    renderAutoTagRuleEditor({
+      containerEl: autoTagEditorContainer,
+      settings: this.plugin.settings,
+      onChange: async () => {
+        AutoTagService.syncYouTubeShortsPreset(this.plugin.settings);
         await this.plugin.saveSettings();
+      },
+      onReapply: async () => {
+        const confirmationModal = new AutoTagScanConfirmationModal(this.app);
+        confirmationModal.open();
+        const confirmed = await confirmationModal.waitForClose();
+        if (!confirmed) {
+          return;
+        }
+        await this.plugin.reapplyAutoTagRulesToAllArticles();
         this.display();
-      }),
-    );
+      },
+    });
   }
 
   private createSupportTab(containerEl: HTMLElement): void {

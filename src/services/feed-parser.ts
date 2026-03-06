@@ -1,5 +1,14 @@
 ﻿import { requestUrl, Platform } from "obsidian";
-import { Feed, FeedItem, MediaSettings, Tag } from "../types/types.js";
+import {
+  AutoTagSettings,
+  DEFAULT_SETTINGS,
+  Feed,
+  FeedItem,
+  MediaSettings,
+  RssDashboardSettings,
+  Tag,
+} from "../types/types.js";
+import { AutoTagService } from "./auto-tag-service";
 import { MediaService } from "./media-service";
 import {
   detectPodcastPlatform,
@@ -2037,13 +2046,31 @@ export class CustomXMLParser {
 }
 
 export class FeedParser {
-  private mediaSettings: MediaSettings;
-  private availableTags: Tag[];
+  private settings: RssDashboardSettings;
   private parser: CustomXMLParser;
 
-  constructor(mediaSettings: MediaSettings, availableTags: Tag[]) {
-    this.mediaSettings = mediaSettings;
-    this.availableTags = availableTags;
+  constructor(settings: RssDashboardSettings);
+  constructor(
+    mediaSettings: MediaSettings,
+    availableTags: Tag[],
+    autoTagging?: AutoTagSettings,
+  );
+  constructor(
+    settingsOrMediaSettings: RssDashboardSettings | MediaSettings,
+    availableTags?: Tag[],
+    autoTagging?: AutoTagSettings,
+  ) {
+    if (availableTags) {
+      this.settings = {
+        ...DEFAULT_SETTINGS,
+        media: settingsOrMediaSettings as MediaSettings,
+        availableTags,
+        autoTagging: autoTagging ?? AutoTagService.createDefaultSettings(),
+      };
+      AutoTagService.syncYouTubeShortsPreset(this.settings);
+    } else {
+      this.settings = settingsOrMediaSettings as RssDashboardSettings;
+    }
     this.parser = new CustomXMLParser();
   }
 
@@ -2462,17 +2489,10 @@ export class FeedParser {
 
     const newItems: FeedItem[] = [];
     const updatedItems: FeedItem[] = [];
-    const shouldDetectYouTubeShorts = this.mediaSettings.detectYouTubeShorts;
-
     parsed.items.forEach((item: ParsedItem) => {
       const isAudioEnclosure = item.enclosure?.type?.startsWith("audio/");
       const isAudioLink = !!(item.link && item.link.includes(".mp3"));
       const isPodcast = isAudioEnclosure || isAudioLink;
-      const isYouTubeShort = MediaService.shouldDetectYouTubeShort(
-        url,
-        item.link || "",
-        shouldDetectYouTubeShorts,
-      );
 
       const audioUrl = isAudioEnclosure
         ? this.convertToAbsoluteUrl(item.enclosure?.url || "", url)
@@ -2531,11 +2551,13 @@ export class FeedParser {
           author: item.author || parsed.author || existingItem.author,
           read: existingItem.read,
           starred: existingItem.starred,
-          tags: MediaService.updateYouTubeShortTags(
-            existingItem.tags,
-            isYouTubeShort,
-            this.availableTags,
-          ),
+          tags: existingItem.tags ? [...existingItem.tags] : [],
+          autoTagState: existingItem.autoTagState
+            ? existingItem.autoTagState.map((entry) => ({
+                tagName: entry.tagName,
+                ruleIds: [...entry.ruleIds],
+              }))
+            : undefined,
           saved: existingItem.saved,
           feedTitle: newFeed.title, // Update feedTitle to match the new feed title
           coverImage,
@@ -2567,6 +2589,7 @@ export class FeedParser {
             ? "podcast"
             : existingItem.mediaType || "article",
         };
+        AutoTagService.applyAutoTagsToItem(updatedItem, newFeed, this.settings);
         updatedItems.push(updatedItem);
       } else {
         let coverImage = "";
@@ -2640,11 +2663,7 @@ export class FeedParser {
           guid: itemGuid,
           read: false,
           starred: false,
-          tags: MediaService.updateYouTubeShortTags(
-            [],
-            isYouTubeShort,
-            this.availableTags,
-          ),
+          tags: [],
           feedTitle: newFeed.title,
           feedUrl: newFeed.url,
           coverImage,
@@ -2665,6 +2684,7 @@ export class FeedParser {
           ieee: item.ieee,
           audioUrl: audioUrl,
         };
+        AutoTagService.applyAutoTagsToItem(newItem, newFeed, this.settings);
         newItems.push(newItem);
       }
     });
@@ -2730,11 +2750,11 @@ export class FeedParser {
 
     const processedFeed = MediaService.detectAndProcessFeed(newFeed);
     if (processedFeed.mediaType === "video" && !existingFeed?.folder) {
-      processedFeed.folder = this.mediaSettings.defaultYouTubeFolder;
+      processedFeed.folder = this.settings.media.defaultYouTubeFolder;
     } else if (processedFeed.mediaType === "podcast" && !existingFeed?.folder) {
-      processedFeed.folder = this.mediaSettings.defaultPodcastFolder;
+      processedFeed.folder = this.settings.media.defaultPodcastFolder;
     }
-    return MediaService.applyMediaTags(processedFeed, this.availableTags);
+    return MediaService.applyMediaTags(processedFeed, this.settings.availableTags);
   }
 
   /**

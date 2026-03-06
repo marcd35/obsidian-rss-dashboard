@@ -14,6 +14,7 @@
 - Added a visible `Watch on YouTube` handoff from the in-app player.
 - Documented YouTube embed behavior and legal links in the README.
 - Add/Edit Feed validation now distinguishes valid-but-empty feeds with a yellow warning message instead of a generic success state.
+- Refreshed the Tags settings auto-tagging UI to use Obsidian-native `Setting` layouts, unified section surfaces, clearer rule/condition cards, and less disruptive in-place editing.
 
 ### Fixed
 

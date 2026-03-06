@@ -1,5 +1,6 @@
 import { Notice, Setting } from "obsidian";
 import { RssDashboardSettings, Tag } from "../types/types";
+import { AutoTagService } from "../services/auto-tag-service";
 
 interface ShowEditTagModalOptions {
   settings: RssDashboardSettings;
@@ -18,6 +19,7 @@ export function updateTagInSettings(
 
   tag.name = updates.name;
   tag.color = updates.color;
+  AutoTagService.renameTagReferences(settings, previousName, updates.name);
 
   settings.feeds.forEach((feed) => {
     feed.items.forEach((item) => {
@@ -33,6 +35,18 @@ export function updateTagInSettings(
       });
     });
   });
+}
+
+export function deleteTagFromSettings(
+  settings: RssDashboardSettings,
+  tag: Tag,
+): void {
+  const tagIndex = settings.availableTags.findIndex((t) => t.name === tag.name);
+  if (tagIndex !== -1) {
+    settings.availableTags.splice(tagIndex, 1);
+  }
+
+  AutoTagService.removeTagReferences(settings, tag.name);
 }
 
 export function showEditTagModal({
