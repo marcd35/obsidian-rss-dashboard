@@ -1,12 +1,4 @@
-﻿import {
-  Menu,
-  MenuItem,
-  Notice,
-  App,
-  Modal,
-  setIcon,
-  Setting,
-} from "obsidian";
+﻿import { Menu, MenuItem, Notice, App, Modal, setIcon, Setting } from "obsidian";
 import {
   Feed,
   Folder,
@@ -225,6 +217,7 @@ export class Sidebar {
   private plugin: RssDashboardPlugin;
   private cachedFolderPaths: string[] | null = null;
   private isSearchExpanded = false;
+  private searchQuery = "";
   private isSidebarToolbarCollapsed = false;
   private isTagsExpanded = false;
   private isRefreshing = false;
@@ -356,8 +349,7 @@ export class Sidebar {
       "--sidebar-item-padding-left",
       `${itemPaddingLeft}px`,
     );
-    const itemPaddingRight =
-      this.settings.display.sidebarItemPaddingRight ?? 2;
+    const itemPaddingRight = this.settings.display.sidebarItemPaddingRight ?? 2;
     this.container.style.setProperty(
       "--sidebar-item-padding-right",
       `${itemPaddingRight}px`,
@@ -386,6 +378,7 @@ export class Sidebar {
       this.renderSearchDock(controlsSurface);
     }
     this.renderFeedFolders();
+    this.filterFeedsAndFolders(this.searchQuery);
 
     requestAnimationFrame(() => {
       this.container.scrollTop = scrollPosition;
@@ -1753,7 +1746,10 @@ export class Sidebar {
       },
     });
     toggleButton.toggleClass("is-collapsed", this.isSidebarToolbarCollapsed);
-    setIcon(toggleButton, this.isSidebarToolbarCollapsed ? "chevron-down" : "chevron-up");
+    setIcon(
+      toggleButton,
+      this.isSidebarToolbarCollapsed ? "chevron-down" : "chevron-up",
+    );
     const toolbarToggleSvg = toggleButton.querySelector("svg");
     const hasRenderableIcon = !!toolbarToggleSvg?.querySelector(
       "path, line, polyline, polygon, circle, rect",
@@ -1788,6 +1784,7 @@ export class Sidebar {
         spellcheck: "false",
       },
     });
+    searchInput.value = this.searchQuery;
     const clearButton = searchContainer.createEl("button", {
       cls: "rss-dashboard-search-clear is-hidden",
       attr: {
@@ -1819,31 +1816,36 @@ export class Sidebar {
 
     let searchTimeout: number;
     searchInput.addEventListener("input", (e) => {
-      const query = ((e.target as HTMLInputElement)?.value || "")
-        .toLowerCase()
-        .trim();
+      this.searchQuery = (e.target as HTMLInputElement)?.value || "";
       updateClearButtonVisibility();
       if (searchTimeout) {
         window.clearTimeout(searchTimeout);
       }
       searchTimeout = window.setTimeout(() => {
-        this.filterFeedsAndFolders(query);
+        this.filterFeedsAndFolders(this.searchQuery);
       }, 150);
     });
 
     clearButton.addEventListener("click", (e) => {
       e.preventDefault();
       searchInput.value = "";
+      this.searchQuery = "";
       updateClearButtonVisibility();
       if (searchTimeout) {
         window.clearTimeout(searchTimeout);
       }
-      this.filterFeedsAndFolders("");
+      this.filterFeedsAndFolders(this.searchQuery);
       searchInput.focus();
     });
 
+    updateClearButtonVisibility();
+
     requestAnimationFrame(() => {
       searchInput.focus();
+      searchInput.setSelectionRange(
+        searchInput.value.length,
+        searchInput.value.length,
+      );
       if (window.innerWidth <= 768) {
         window.setTimeout(() => {
           searchInput.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1967,7 +1969,11 @@ export class Sidebar {
     );
     setIcon(searchButton, "search");
     const toggleSearch = () => {
-      this.isSearchExpanded = !this.isSearchExpanded;
+      const nextExpandedState = !this.isSearchExpanded;
+      if (!nextExpandedState) {
+        this.searchQuery = "";
+      }
+      this.isSearchExpanded = nextExpandedState;
       this.render();
 
       if (this.isSearchExpanded) {
@@ -2448,6 +2454,8 @@ export class Sidebar {
    * Searches feed titles and folder names
    */
   private filterFeedsAndFolders(query: string): void {
+    const normalizedQuery = query.toLowerCase().trim();
+
     // Get all feed elements
     const feedElements = this.container.querySelectorAll(".rss-dashboard-feed");
 
@@ -2466,7 +2474,7 @@ export class Sidebar {
       const feedNameEl = el.querySelector(".rss-dashboard-feed-name");
       const feedName = feedNameEl?.textContent?.toLowerCase() || "";
 
-      if (query && !feedName.includes(query)) {
+      if (normalizedQuery && !feedName.includes(normalizedQuery)) {
         (el as HTMLElement).addClass("rss-dashboard-search-hidden");
       } else {
         (el as HTMLElement).removeClass("rss-dashboard-search-hidden");
@@ -2478,7 +2486,7 @@ export class Sidebar {
       const folderNameEl = el.querySelector(".rss-dashboard-feed-folder-name");
       const folderName = folderNameEl?.textContent?.toLowerCase() || "";
 
-      if (query && !folderName.includes(query)) {
+      if (normalizedQuery && !folderName.includes(normalizedQuery)) {
         // Check if this folder has any visible feeds
         const folderEl = el.closest(".rss-dashboard-feed-folder");
         const visibleFeeds = folderEl?.querySelectorAll(
@@ -2499,7 +2507,7 @@ export class Sidebar {
     if (allFeedsButton) {
       // Show All Feeds button if query is empty, or always show it
       // since it serves as a "clear filter" option
-      if (query) {
+      if (normalizedQuery) {
         // Check if there are any visible feeds
         const visibleFeeds = this.container.querySelectorAll(
           ".rss-dashboard-feed:not(.rss-dashboard-search-hidden)",
@@ -2525,6 +2533,7 @@ export class Sidebar {
    * Clear the search and show all feeds/folders
    */
   public clearFeedSearch(): void {
+    this.searchQuery = "";
     this.isSearchExpanded = false;
     this.render();
   }
