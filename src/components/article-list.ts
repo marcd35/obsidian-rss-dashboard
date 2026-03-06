@@ -7,7 +7,7 @@ import {
   TABLET_LAYOUT_MAX_WIDTH,
 } from "../utils/platform-utils";
 import { HighlightService } from "../services/highlight-service";
-import { showEditTagModal } from "../utils/tag-utils";
+import { deleteTagFromSettings, showEditTagModal } from "../utils/tag-utils";
 
 const MAX_VISIBLE_TAGS = 6;
 
@@ -90,6 +90,7 @@ export class ArticleList {
   private callbacks: ArticleListCallbacks;
   private refreshButton: HTMLElement | null = null;
   private resizeObserver: ResizeObserver | null = null;
+  private cardLayoutFrame: number | null = null;
   private currentPage: number;
   private totalPages: number;
   private pageSize: number;
@@ -150,6 +151,10 @@ export class ArticleList {
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;
+    }
+    if (this.cardLayoutFrame !== null) {
+      cancelAnimationFrame(this.cardLayoutFrame);
+      this.cardLayoutFrame = null;
     }
     this.closeActiveFilterMenu();
     this.documentListeners.forEach(({ target, type, listener }) => {
@@ -248,6 +253,201 @@ export class ArticleList {
       return 15;
     }
     return Math.max(0, Math.min(40, Math.round(value)));
+  }
+
+  private getCardGridTemplateColumns(
+    cardColumns: number,
+  ): string | null {
+    if (cardColumns > 0) {
+      return `repeat(${cardColumns}, minmax(0, 1fr))`;
+    }
+
+    return null;
+  }
+
+  private applyCardGridLayout(
+    articlesList: HTMLElement,
+    _containerWidth: number,
+  ): void {
+    const cardColumns = this.getCardColumnsPerRow();
+    const gridTemplateColumns = this.getCardGridTemplateColumns(cardColumns);
+
+    if (gridTemplateColumns) {
+      articlesList.style.setProperty(
+        "grid-template-columns",
+        gridTemplateColumns,
+      );
+      return;
+    }
+
+    articlesList.style.removeProperty("grid-template-columns");
+  }
+
+  private scheduleCardTagLayout(root: ParentNode = this.container): void {
+    if (this.settings.viewStyle !== "card") {
+      return;
+    }
+
+    if (this.cardLayoutFrame !== null) {
+      cancelAnimationFrame(this.cardLayoutFrame);
+    }
+
+    this.cardLayoutFrame = requestAnimationFrame(() => {
+      this.cardLayoutFrame = null;
+      this.layoutCardTagRows(root);
+    });
+  }
+
+  private layoutCardTagRows(root: ParentNode = this.container): void {
+    const cards = root.querySelectorAll<HTMLElement>(
+      ".rss-dashboard-article-card",
+    );
+    cards.forEach((card) => this.layoutSingleCardTagRow(card));
+  }
+
+  private layoutSingleCardTagRow(card: HTMLElement): void {
+    const tagsContainer = card.querySelector<HTMLElement>(
+      ".rss-dashboard-card-tags-region .rss-dashboard-article-tags",
+    );
+    const articleGuid = card.dataset.articleGuid;
+    if (!tagsContainer || !articleGuid) {
+      return;
+    }
+
+    const article = this.articles.find((item) => item.guid === articleGuid);
+    if (!article?.tags?.length) {
+      tagsContainer.empty();
+      return;
+    }
+
+    this.renderSingleRowCardTagChips(tagsContainer, article.tags);
+  }
+
+  private renderTagChips(container: HTMLElement, tags: Tag[]): void {
+    container.empty();
+
+    const tagsToShow = tags.slice(0, MAX_VISIBLE_TAGS);
+    tagsToShow.forEach((tag) => {
+      const tagEl = container.createDiv({
+        cls: "rss-dashboard-article-tag",
+        text: tag.name,
+      });
+      tagEl.style.setProperty(
+        "--tag-color",
+        tag.color || "var(--interactive-accent)",
+      );
+    });
+
+    if (tags.length > MAX_VISIBLE_TAGS) {
+      const overflow = container.createDiv({
+        cls: "rss-dashboard-tag-overflow",
+        text: `+${tags.length - MAX_VISIBLE_TAGS}`,
+      });
+      overflow.title = tags
+        .slice(MAX_VISIBLE_TAGS)
+        .map((tag) => tag.name)
+        .join(", ");
+    }
+  }
+
+  private createTagChip(container: HTMLElement, tag: Tag): HTMLElement {
+    const tagEl = container.createDiv({
+      cls: "rss-dashboard-article-tag",
+      text: tag.name,
+    });
+    tagEl.style.setProperty(
+      "--tag-color",
+      tag.color || "var(--interactive-accent)",
+    );
+    return tagEl;
+  }
+
+  private createTagOverflowChip(
+    container: HTMLElement,
+    hiddenTags: Tag[],
+  ): HTMLElement {
+    const overflow = container.createDiv({
+      cls: "rss-dashboard-tag-overflow",
+      text: `+${hiddenTags.length}`,
+    });
+    overflow.title = hiddenTags.map((tag) => tag.name).join(", ");
+    return overflow;
+  }
+
+  private renderSingleRowCardTagChips(
+    container: HTMLElement,
+    tags: Tag[],
+  ): void {
+    container.empty();
+
+    if (tags.length === 0) {
+      return;
+    }
+
+    if (container.clientWidth <= 0) {
+      this.renderTagChips(container, tags);
+      return;
+    }
+
+    let visibleCount = 0;
+
+    for (let i = 0; i < tags.length; i += 1) {
+      this.createTagChip(container, tags[i]);
+      visibleCount = i + 1;
+
+      const remainingTags = tags.slice(visibleCount);
+      let probeOverflow: HTMLElement | null = null;
+      if (remainingTags.length > 0) {
+        probeOverflow = this.createTagOverflowChip(container, remainingTags);
+      }
+
+      const exceedsWidth = container.scrollWidth > container.clientWidth;
+      probeOverflow?.remove();
+
+      if (exceedsWidth) {
+        container.lastElementChild?.remove();
+        visibleCount = i;
+        break;
+      }
+    }
+
+    if (visibleCount < tags.length) {
+      const hiddenTags = tags.slice(visibleCount);
+      this.createTagOverflowChip(container, hiddenTags);
+    }
+  }
+
+  private ensureCardTagsContainer(articleEl: HTMLElement): HTMLElement | null {
+    if (!articleEl.classList.contains("rss-dashboard-article-card")) {
+      return null;
+    }
+
+    let tagsRegion = articleEl.querySelector<HTMLElement>(
+      ".rss-dashboard-card-tags-region",
+    );
+    if (!tagsRegion) {
+      tagsRegion = document.createElement("div");
+      tagsRegion.className = "rss-dashboard-card-tags-region";
+      const cardFooter = articleEl.querySelector<HTMLElement>(
+        ".rss-dashboard-card-footer",
+      );
+      if (cardFooter) {
+        articleEl.insertBefore(tagsRegion, cardFooter);
+      } else {
+        articleEl.appendChild(tagsRegion);
+      }
+    }
+
+    let tagsContainer = tagsRegion.querySelector<HTMLElement>(
+      ".rss-dashboard-article-tags",
+    );
+    if (!tagsContainer) {
+      tagsContainer = tagsRegion.createDiv({
+        cls: "rss-dashboard-article-tags",
+      });
+    }
+
+    return tagsContainer;
   }
 
   private addDocumentListener(
@@ -552,31 +752,38 @@ export class ArticleList {
 
   private syncArticleTags(articleEl: HTMLElement, article: FeedItem): void {
     const tags = article.tags || [];
+    const hasTags = tags.length > 0;
+    articleEl.classList.toggle("rss-dashboard-article-card--has-tags", hasTags);
+    if (articleEl.classList.contains("rss-dashboard-article-card")) {
+      if (!hasTags) {
+        articleEl
+          .querySelector<HTMLElement>(".rss-dashboard-card-tags-region")
+          ?.remove();
+        this.scheduleCardTagLayout(articleEl);
+        return;
+      }
+
+      const cardTagsContainer = this.ensureCardTagsContainer(articleEl);
+      if (!cardTagsContainer) {
+        return;
+      }
+
+      this.renderTagChips(cardTagsContainer, tags);
+      this.scheduleCardTagLayout(articleEl);
+      return;
+    }
+
     const existingContainers = Array.from(
       articleEl.querySelectorAll<HTMLElement>(".rss-dashboard-article-tags"),
     );
 
-    const hasTags = tags.length > 0;
     if (!hasTags && existingContainers.length > 0) {
       existingContainers.forEach((container) => container.remove());
       return;
     }
 
     if (hasTags && existingContainers.length === 0) {
-      if (articleEl.classList.contains("rss-dashboard-article-card")) {
-        const cardContent = articleEl.querySelector<HTMLElement>(
-          ".rss-dashboard-card-content",
-        );
-        if (cardContent) {
-          existingContainers.push(
-            cardContent.createDiv({
-              cls: "rss-dashboard-article-tags",
-            }),
-          );
-        }
-      } else if (
-        articleEl.classList.contains("rss-dashboard-list-item-bottom-row")
-      ) {
+      if (articleEl.classList.contains("rss-dashboard-list-item-bottom-row")) {
         const articleContent = articleEl.querySelector<HTMLElement>(
           ".rss-dashboard-article-content",
         );
@@ -605,29 +812,7 @@ export class ArticleList {
     }
 
     existingContainers.forEach((container) => {
-      container.empty();
-      const tagsToShow = tags.slice(0, MAX_VISIBLE_TAGS);
-      tagsToShow.forEach((tag) => {
-        const tagEl = container.createDiv({
-          cls: "rss-dashboard-article-tag",
-          text: tag.name,
-        });
-        tagEl.style.setProperty(
-          "--tag-color",
-          tag.color || "var(--interactive-accent)",
-        );
-      });
-
-      if (tags.length > MAX_VISIBLE_TAGS) {
-        const overflow = container.createDiv({
-          cls: "rss-dashboard-tag-overflow",
-          text: `+${tags.length - MAX_VISIBLE_TAGS}`,
-        });
-        overflow.title = tags
-          .slice(MAX_VISIBLE_TAGS)
-          .map((t) => t.name)
-          .join(", ");
-      }
+      this.renderTagChips(container, tags);
     });
   }
 
@@ -674,6 +859,14 @@ export class ArticleList {
           articlesHeader.classList.add("is-narrow");
         } else {
           articlesHeader.classList.remove("is-narrow");
+        }
+
+        const cardList = this.container.querySelector<HTMLElement>(
+          ".rss-dashboard-articles-list.rss-dashboard-card-view",
+        );
+        if (cardList) {
+          this.applyCardGridLayout(cardList, width);
+          this.scheduleCardTagLayout(cardList);
         }
       }
     });
@@ -1774,22 +1967,13 @@ export class ArticleList {
     if (this.settings.viewStyle === "card") {
       // Keep card layout controls in one render-time path so both hamburger
       // controls and formal settings stay in sync with the same persisted fields.
-      const cardColumns = this.getCardColumnsPerRow();
       const cardSpacing = this.getCardSpacing();
-
-      if (cardColumns > 0) {
-        articlesList.style.setProperty(
-          "grid-template-columns",
-          `repeat(${cardColumns}, minmax(0, 1fr))`,
-        );
-      } else {
-        articlesList.style.removeProperty("grid-template-columns");
-      }
 
       articlesList.style.setProperty(
         "--rss-dashboard-card-gap",
         `${cardSpacing}px`,
       );
+      this.applyCardGridLayout(articlesList, this.container.clientWidth);
     }
     const showToolbar = this.shouldShowToolbarForView(this.settings.viewStyle);
     articlesList.toggleClass(
@@ -1854,6 +2038,10 @@ export class ArticleList {
       this.pageSize,
       this.totalArticles,
     );
+
+    if (this.settings.viewStyle === "card") {
+      this.scheduleCardTagLayout(articlesList);
+    }
 
     if (this.container) this.container.scrollTop = prevScroll;
   }
@@ -2301,6 +2489,9 @@ export class ArticleList {
       const card = container.createDiv({
         cls:
           "rss-dashboard-article-card" +
+          (article.tags && article.tags.length > 0
+            ? " rss-dashboard-article-card--has-tags"
+            : "") +
           (this.selectedArticle && article.guid === this.selectedArticle.guid
             ? " active"
             : "") +
@@ -2312,14 +2503,21 @@ export class ArticleList {
           (article.mediaType === "podcast"
             ? " rss-dashboard-podcast-article"
             : ""),
-        attr: { id: `article-${article.guid}` },
+        attr: {
+          id: `article-${article.guid}`,
+          "data-article-guid": article.guid,
+        },
       });
 
       const cardContent = card.createDiv({
         cls: "rss-dashboard-card-content",
       });
 
-      const cardTitleEl = cardContent.createDiv({
+      const cardHeader = cardContent.createDiv({
+        cls: "rss-dashboard-card-header",
+      });
+
+      const cardTitleEl = cardHeader.createDiv({
         cls: "rss-dashboard-article-title",
       });
 
@@ -2334,7 +2532,7 @@ export class ArticleList {
       }
 
       if (this.showFeedSource) {
-        const articleMeta = cardContent.createDiv({
+        const articleMeta = cardHeader.createDiv({
           cls: "rss-dashboard-article-meta",
         });
 
@@ -2361,7 +2559,10 @@ export class ArticleList {
       }
 
       if (coverImgSrc) {
-        const coverContainer = cardContent.createDiv({
+        const previewRegion = cardContent.createDiv({
+          cls: "rss-dashboard-card-preview-region",
+        });
+        const coverContainer = previewRegion.createDiv({
           cls:
             "rss-dashboard-cover-container" +
             (article.summary ? " has-summary" : ""),
@@ -2374,7 +2575,8 @@ export class ArticleList {
           },
         });
         coverImg.onerror = () => {
-          coverContainer.remove();
+          previewRegion.remove();
+          this.scheduleCardTagLayout(card);
         };
 
         if (article.summary) {
@@ -2397,7 +2599,10 @@ export class ArticleList {
           }
         }
       } else if (article.summary) {
-        const summaryOnlyContainer = cardContent.createDiv({
+        const previewRegion = cardContent.createDiv({
+          cls: "rss-dashboard-card-preview-region",
+        });
+        const summaryOnlyContainer = previewRegion.createDiv({
           cls: "rss-dashboard-cover-summary-only",
         });
         if (
@@ -2417,27 +2622,13 @@ export class ArticleList {
       }
 
       if (article.tags && article.tags.length > 0) {
-        const tagsContainer = cardContent.createDiv({
+        const tagsRegion = document.createElement("div");
+        tagsRegion.className = "rss-dashboard-card-tags-region";
+        const tagsContainer = tagsRegion.createDiv({
           cls: "rss-dashboard-article-tags",
         });
-        const tagsToShow = article.tags.slice(0, MAX_VISIBLE_TAGS);
-        tagsToShow.forEach((tag) => {
-          const tagEl = tagsContainer.createDiv({
-            cls: "rss-dashboard-article-tag",
-            text: tag.name,
-          });
-          tagEl.style.setProperty("--tag-color", tag.color);
-        });
-        if (article.tags.length > MAX_VISIBLE_TAGS) {
-          const overflowTag = tagsContainer.createDiv({
-            cls: "rss-dashboard-tag-overflow",
-            text: `+${article.tags.length - MAX_VISIBLE_TAGS}`,
-          });
-          overflowTag.title = article.tags
-            .slice(MAX_VISIBLE_TAGS)
-            .map((t) => t.name)
-            .join(", ");
-        }
+        this.renderTagChips(tagsContainer, article.tags);
+        card.appendChild(tagsRegion);
       }
 
       if (this.shouldShowToolbarForView("card")) {
@@ -2465,6 +2656,8 @@ export class ArticleList {
         e.preventDefault();
         this.showArticleContextMenu(e, article);
       });
+
+      this.scheduleCardTagLayout(card);
     }
   }
   private renderPagination(
@@ -2750,21 +2943,15 @@ export class ArticleList {
     };
 
     const deleteTagFromProfile = (tag: Tag) => {
-      const tagIndex = this.settings.availableTags.findIndex(
-        (t) => t.name === tag.name,
-      );
-      if (tagIndex === -1) {
+      if (
+        !this.settings.availableTags.some(
+          (existingTag) => existingTag.name === tag.name,
+        )
+      ) {
         return;
       }
 
-      this.settings.availableTags.splice(tagIndex, 1);
-      this.settings.feeds.forEach((feed) => {
-        feed.items.forEach((item) => {
-          if (item.tags) {
-            item.tags = item.tags.filter((t) => t.name !== tag.name);
-          }
-        });
-      });
+      deleteTagFromSettings(this.settings, tag);
 
       if (article.tags?.some((t) => t.name === tag.name)) {
         onTagChange(tag, false);
