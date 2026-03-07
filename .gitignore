@@ -27,3 +27,6 @@ docs/archive
 CLAUDE.md
 agent.md
 AGENTS.md
+data.json.backup
+rss-dashboard.sqlite
+usersettings.json
