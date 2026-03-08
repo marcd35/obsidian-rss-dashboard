@@ -1929,7 +1929,9 @@ export class RssDashboardSettingTab extends PluginSettingTab {
 
         const editWord = () => {
           void (async () => {
-            const nextTextRaw = await this.promptForHighlightWordEdit(word.text);
+            const nextTextRaw = await this.promptForHighlightWordEdit(
+              word.text,
+            );
             if (nextTextRaw === null) return;
             const nextText = nextTextRaw.trim();
             if (!nextText) {
@@ -1971,15 +1973,13 @@ export class RssDashboardSettingTab extends PluginSettingTab {
               }),
           )
           .addToggle((toggle) =>
-            toggle
-              .setValue(word.enabled)
-              .onChange(async (value) => {
-                if (!this.plugin.settings.highlights) return;
-                this.plugin.settings.highlights.words[index].enabled = value;
-                await this.plugin.saveSettings();
-                this.display();
-                await rerenderHighlightViews();
-              }),
+            toggle.setValue(word.enabled).onChange(async (value) => {
+              if (!this.plugin.settings.highlights) return;
+              this.plugin.settings.highlights.words[index].enabled = value;
+              await this.plugin.saveSettings();
+              this.display();
+              await rerenderHighlightViews();
+            }),
           )
           .addButton((button) =>
             button
@@ -2076,10 +2076,10 @@ export class RssDashboardSettingTab extends PluginSettingTab {
         const wholeWordToggle = wholeWordSetting.components[0] as unknown as {
           getValue: () => boolean;
         };
-        const caseSensitiveToggle = caseSensitiveSetting.components[0] as
-          unknown as {
-            getValue: () => boolean;
-          };
+        const caseSensitiveToggle = caseSensitiveSetting
+          .components[0] as unknown as {
+          getValue: () => boolean;
+        };
 
         const text = textInput.inputEl.value.trim();
         const color = colorPicker.getValue();
@@ -2183,11 +2183,7 @@ export class RssDashboardSettingTab extends PluginSettingTab {
                   const data = JSON.parse(
                     text,
                   ) as Partial<RssDashboardSettings>;
-                  this.plugin.settings = Object.assign(
-                    {},
-                    this.plugin.settings,
-                    data,
-                  );
+                  Object.assign(this.plugin.settings, data);
                   await this.plugin.saveSettings();
                   const view = await this.plugin.getActiveDashboardView();
                   if (view) {
@@ -2231,7 +2227,9 @@ export class RssDashboardSettingTab extends PluginSettingTab {
       .setHeading();
 
     const userSettingsActions = new Setting(userSettingsSection);
-    userSettingsActions.settingEl.addClass("rss-dashboard-import-export-actions");
+    userSettingsActions.settingEl.addClass(
+      "rss-dashboard-import-export-actions",
+    );
     userSettingsActions
       .addButton((button) =>
         button
@@ -2341,8 +2339,9 @@ export class RssDashboardSettingTab extends PluginSettingTab {
       tagsContainer.empty();
 
       const normalizedQuery = query.trim().toLowerCase();
-      const visibleTags = this.plugin.settings.availableTags.filter((tag) =>
-        !normalizedQuery || tag.name.toLowerCase().includes(normalizedQuery),
+      const visibleTags = this.plugin.settings.availableTags.filter(
+        (tag) =>
+          !normalizedQuery || tag.name.toLowerCase().includes(normalizedQuery),
       );
 
       if (visibleTags.length === 0) {
@@ -2479,7 +2478,9 @@ export class RssDashboardSettingTab extends PluginSettingTab {
           const duplicateExists = this.plugin.settings.availableTags.some(
             (tag) => tag.name.toLowerCase() === trimmedValue.toLowerCase(),
           );
-          setAddTagError(duplicateExists ? "A tag with this name already exists." : "");
+          setAddTagError(
+            duplicateExists ? "A tag with this name already exists." : "",
+          );
         });
       })
       .addColorPicker((colorPicker) =>
@@ -2523,14 +2524,33 @@ export class RssDashboardSettingTab extends PluginSettingTab {
     syncAddTagInputUi();
 
     new Setting(containerEl).setName("Auto-tagging rules").setHeading();
-    const autoTagSettingsSurface = containerEl.createDiv({
-      cls: "rss-auto-tag-settings-surface",
-    });
 
-    new Setting(autoTagSettingsSurface)
+    new Setting(containerEl)
+      .setName("Scan all and apply auto tagging")
+      .setDesc(
+        "Scan every stored article and apply enabled auto-tagging rules.",
+      )
+      .addButton((button) => {
+        button
+          .setButtonText("Scan and tag")
+          .setCta()
+          .onClick(async () => {
+            const confirmationModal = new AutoTagScanConfirmationModal(
+              this.app,
+            );
+            confirmationModal.open();
+            const confirmed = await confirmationModal.waitForClose();
+            if (!confirmed) {
+              return;
+            }
+            await this.plugin.reapplyAutoTagRulesToAllArticles();
+            this.display();
+          });
+      });
+
+    new Setting(containerEl)
       .setName("Auto-tag YouTube shorts")
       .setDesc("Automatically tag detected YouTube shorts from feed XML.")
-      .setClass("rss-auto-tag-preset-setting")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.media.detectYouTubeShorts || false)
@@ -2542,9 +2562,14 @@ export class RssDashboardSettingTab extends PluginSettingTab {
           }),
       );
 
-    const autoTagEditorContainer = autoTagSettingsSurface.createDiv({
-      cls: "rss-auto-tag-rule-editor",
+    new Setting(containerEl).setName("Custom rules").setHeading();
+
+    containerEl.createEl("p", {
+      cls: "rss-dashboard-settings-description",
+      text: "Create rules that apply tags from title, summary, content, feed URL, or article URL matches.",
     });
+
+    const autoTagEditorContainer = containerEl.createDiv();
 
     renderAutoTagRuleEditor({
       containerEl: autoTagEditorContainer,
@@ -2552,16 +2577,6 @@ export class RssDashboardSettingTab extends PluginSettingTab {
       onChange: async () => {
         AutoTagService.syncYouTubeShortsPreset(this.plugin.settings);
         await this.plugin.saveSettings();
-      },
-      onReapply: async () => {
-        const confirmationModal = new AutoTagScanConfirmationModal(this.app);
-        confirmationModal.open();
-        const confirmed = await confirmationModal.waitForClose();
-        if (!confirmed) {
-          return;
-        }
-        await this.plugin.reapplyAutoTagRulesToAllArticles();
-        this.display();
       },
     });
   }

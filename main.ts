@@ -67,6 +67,10 @@ export default class RssDashboardPlugin extends Plugin {
   public backgroundImportQueue: FeedMetadata[] = [];
   public settingTab: RssDashboardSettingTab | null = null;
   private isBackgroundImporting = false;
+  private isWritingToSettings = false;
+  private isWritingToDatabase = false;
+  private settingsWriteTimeout: ReturnType<typeof setTimeout> | null = null;
+  private databaseWriteTimeout: ReturnType<typeof setTimeout> | null = null;
 
   public async getActiveDashboardView(): Promise<RssDashboardView | null> {
     const leaves = this.app.workspace.getLeavesOfType(RSS_DASHBOARD_VIEW_TYPE);
@@ -116,7 +120,10 @@ export default class RssDashboardPlugin extends Plugin {
           ) => Promise<void>;
         };
 
-        if (readerState.currentItem && typeof readerState.displayItem === "function") {
+        if (
+          readerState.currentItem &&
+          typeof readerState.displayItem === "function"
+        ) {
           await readerState.displayItem(
             readerState.currentItem,
             readerState.relatedItems ?? [],
@@ -165,7 +172,7 @@ export default class RssDashboardPlugin extends Plugin {
     return null;
   }
 
-    public async openTagsSettings(): Promise<void> {
+  public async openTagsSettings(): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment
     const setting = (this.app as any).setting;
     if (setting) {
@@ -174,7 +181,7 @@ export default class RssDashboardPlugin extends Plugin {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
       setting.openTabById(this.manifest.id);
       if (this.settingTab) {
-        this.settingTab.activateTab('Tags');
+        this.settingTab.activateTab("Tags");
       }
     }
   }
@@ -192,7 +199,6 @@ export default class RssDashboardPlugin extends Plugin {
       }
     }
   }
-
 
   async onload() {
     await this.loadSettings();
@@ -244,6 +250,9 @@ export default class RssDashboardPlugin extends Plugin {
               shouldRerender?: boolean,
             ) => {
               void this.updateArticleFromReader(item, updates, shouldRerender);
+            },
+            () => {
+              void this.saveSettings();
             },
           ),
       );
@@ -396,6 +405,35 @@ export default class RssDashboardPlugin extends Plugin {
           },
           this.settings.refreshInterval * 60 * 1000,
         ),
+      );
+
+      this.registerEvent(
+        this.app.vault.on("modify", (file) => {
+          if (!file || !("path" in file)) return;
+
+          const pluginDir = this.manifest.dir ?? "";
+          if (!pluginDir) return;
+
+          const settingsPath = `${pluginDir}/${USER_SETTINGS_FILENAME}`;
+          const dbPath = `${pluginDir}/${SQLITE_DB_FILENAME}`;
+
+          if (file.path === settingsPath && !this.isWritingToSettings) {
+            void (async () => {
+              await this.loadSettings();
+              await this.refreshOpenViews();
+            })();
+          } else if (file.path === dbPath && !this.isWritingToDatabase) {
+            void (async () => {
+              if (this.db?.isInitialized()) {
+                await this.db.reinit();
+                this.settings.feeds = this.db.loadAllFeeds();
+                this.settings.folders = this.db.loadAllFolders();
+                this.settings.availableTags = this.db.loadAllTags();
+                await this.refreshOpenViews();
+              }
+            })();
+          }
+        }),
       );
     } catch {
       new Notice("Error initializing RSS dashboard plugin.");
@@ -553,10 +591,19 @@ export default class RssDashboardPlugin extends Plugin {
           }
 
           // Fast path: single article upsert
+          this.isWritingToDatabase = true;
+          if (this.databaseWriteTimeout) {
+            clearTimeout(this.databaseWriteTimeout);
+            this.databaseWriteTimeout = null;
+          }
           if (this.db?.isInitialized()) {
             this.db.upsertArticle(originalItem);
             this.db.scheduleSave();
           }
+          this.databaseWriteTimeout = setTimeout(() => {
+            this.isWritingToDatabase = false;
+          }, 3000);
+
           await this.saveSettingsOnly();
 
           await this.syncDashboardArticleUpdate(
@@ -760,11 +807,22 @@ export default class RssDashboardPlugin extends Plugin {
     Object.assign(article, updates);
 
     // Fast path: single article upsert instead of full sync
-    if (this.db?.isInitialized()) {
-      this.db.upsertArticle(article);
-      this.db.scheduleSave();
+    this.isWritingToDatabase = true;
+    if (this.databaseWriteTimeout) {
+      clearTimeout(this.databaseWriteTimeout);
+      this.databaseWriteTimeout = null;
     }
-    await this.saveSettingsOnly();
+    try {
+      if (this.db?.isInitialized()) {
+        this.db.upsertArticle(article);
+        this.db.scheduleSave();
+      }
+      await this.saveSettingsOnly();
+    } finally {
+      this.databaseWriteTimeout = setTimeout(() => {
+        this.isWritingToDatabase = false;
+      }, 3000);
+    }
 
     if (shouldRefreshView) {
       const view = await this.getActiveDashboardView();
@@ -975,9 +1033,21 @@ export default class RssDashboardPlugin extends Plugin {
     const totalFeeds = this.backgroundImportQueue.length;
     let processedCount = 0;
     const saveEvery =
-      totalFeeds >= 20000 ? 200 : totalFeeds >= 5000 ? 100 : totalFeeds >= 1000 ? 25 : 5;
+      totalFeeds >= 20000
+        ? 200
+        : totalFeeds >= 5000
+          ? 100
+          : totalFeeds >= 1000
+            ? 25
+            : 5;
     const renderEvery =
-      totalFeeds >= 20000 ? 500 : totalFeeds >= 5000 ? 150 : totalFeeds >= 1000 ? 40 : 3;
+      totalFeeds >= 20000
+        ? 500
+        : totalFeeds >= 5000
+          ? 150
+          : totalFeeds >= 1000
+            ? 40
+            : 3;
     const interFeedDelayMs = totalFeeds >= 5000 ? 10 : 100;
     const shouldRenderDuringImport = totalFeeds < 5000;
 
@@ -1084,11 +1154,12 @@ export default class RssDashboardPlugin extends Plugin {
             throw new Error("Invalid usersettings.json");
           }
 
-          const parsedWithCollections = parsed as Partial<RssDashboardSettings> & {
-            feeds?: unknown;
-            folders?: unknown;
-            availableTags?: unknown;
-          };
+          const parsedWithCollections =
+            parsed as Partial<RssDashboardSettings> & {
+              feeds?: unknown;
+              folders?: unknown;
+              availableTags?: unknown;
+            };
           const hasFeedCollections =
             Array.isArray(parsedWithCollections.feeds) ||
             Array.isArray(parsedWithCollections.folders) ||
@@ -1279,7 +1350,10 @@ export default class RssDashboardPlugin extends Plugin {
           // Best-effort rollback to previous database file if import fails.
           if (previousDbBinary) {
             try {
-              await this.app.vault.adapter.writeBinary(dbPath, previousDbBinary);
+              await this.app.vault.adapter.writeBinary(
+                dbPath,
+                previousDbBinary,
+              );
             } catch {
               // ignore rollback failure
             }
@@ -1460,7 +1534,7 @@ export default class RssDashboardPlugin extends Plugin {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(opmlContent);
         new Notice(
-          "Feed list copied to clipboard. Paste into your reader to import"
+          "Feed list copied to clipboard. Paste into your reader to import",
         );
         return;
       }
@@ -1473,7 +1547,9 @@ export default class RssDashboardPlugin extends Plugin {
       const blob = new Blob([opmlContent], { type: "text/xml" });
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
-      new Notice("Feed list opened in a new window. Save to download and import");
+      new Notice(
+        "Feed list opened in a new window. Save to download and import",
+      );
       // Note: Don't revoke the URL immediately - the new window needs it
       // It will be revoked when the window closes or navigates away
     } catch (error) {
@@ -1759,7 +1835,17 @@ export default class RssDashboardPlugin extends Plugin {
       // Load settings from usersettings.json first, fall back to data.json
       const data = await this.loadUserSettings();
 
-      this.settings = Object.assign({}, DEFAULT_SETTINGS, data ?? {});
+      if (!this.settings) {
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, data ?? {});
+      } else {
+        // Clear current settings to ensure we don't have stale data if fields were removed
+        // but keep the object reference intact.
+        Object.keys(this.settings).forEach((key) => {
+          // @ts-ignore
+          delete this.settings[key];
+        });
+        Object.assign(this.settings, DEFAULT_SETTINGS, data ?? {});
+      }
 
       this.migrateLegacySettings();
 
@@ -1852,7 +1938,8 @@ export default class RssDashboardPlugin extends Plugin {
       await this.db.init(pluginDir, this.app.vault.adapter);
 
       if (this.db.hasCorruption()) {
-        const recoveredFromJson = await this.tryRecoverFromJsonBackups(pluginDir);
+        const recoveredFromJson =
+          await this.tryRecoverFromJsonBackups(pluginDir);
         if (recoveredFromJson) {
           new Notice(
             "Database was unreadable; feed data was recovered from backup and will be resynced.",
@@ -1921,7 +2008,10 @@ export default class RssDashboardPlugin extends Plugin {
   }
 
   private async tryRecoverFromJsonBackups(pluginDir: string): Promise<boolean> {
-    const candidatePaths = [`${pluginDir}/data.json.backup`, `${pluginDir}/data.json`];
+    const candidatePaths = [
+      `${pluginDir}/data.json.backup`,
+      `${pluginDir}/data.json`,
+    ];
 
     for (const path of candidatePaths) {
       try {
@@ -2142,10 +2232,21 @@ export default class RssDashboardPlugin extends Plugin {
     const settingsPath = `${pluginDir}/${USER_SETTINGS_FILENAME}`;
     const settingsOnly = this.getSettingsOnlyData();
 
-    await this.app.vault.adapter.write(
-      settingsPath,
-      JSON.stringify(settingsOnly, null, 2),
-    );
+    if (this.settingsWriteTimeout) {
+      clearTimeout(this.settingsWriteTimeout);
+      this.settingsWriteTimeout = null;
+    }
+    this.isWritingToSettings = true;
+    try {
+      await this.app.vault.adapter.write(
+        settingsPath,
+        JSON.stringify(settingsOnly, null, 2),
+      );
+    } finally {
+      this.settingsWriteTimeout = setTimeout(() => {
+        this.isWritingToSettings = false;
+      }, 2000);
+    }
   }
 
   private getSettingsOnlyData(): Omit<
@@ -2183,11 +2284,22 @@ export default class RssDashboardPlugin extends Plugin {
       clearTimeout(this.dbSyncTimer);
       this.dbSyncTimer = null;
     }
-    if (this.db?.isInitialized()) {
-      this.db.saveAllFeeds(this.settings.feeds);
-      this.db.saveAllFolders(this.settings.folders);
-      this.db.saveAllTags(this.settings.availableTags);
-      await this.db.forceSave();
+    if (this.databaseWriteTimeout) {
+      clearTimeout(this.databaseWriteTimeout);
+      this.databaseWriteTimeout = null;
+    }
+    this.isWritingToDatabase = true;
+    try {
+      if (this.db?.isInitialized()) {
+        this.db.saveAllFeeds(this.settings.feeds);
+        this.db.saveAllFolders(this.settings.folders);
+        this.db.saveAllTags(this.settings.availableTags);
+        await this.db.forceSave();
+      }
+    } finally {
+      this.databaseWriteTimeout = setTimeout(() => {
+        this.isWritingToDatabase = false;
+      }, 2000);
     }
   }
 
@@ -2356,4 +2468,3 @@ export default class RssDashboardPlugin extends Plugin {
     return allArticles;
   }
 }
-

@@ -40,7 +40,8 @@ export class ReaderView extends ItemView {
     item: FeedItem,
     updates: Partial<FeedItem>,
     shouldRerender?: boolean,
-  ) => void;
+  ) => void | Promise<void>;
+  private onPersistSettings?: () => void | Promise<void>;
   private webViewerIntegration: WebViewerIntegration | null = null;
   private podcastPlayer: PodcastPlayer | null = null;
   private videoPlayer: VideoPlayer | null = null;
@@ -62,12 +63,13 @@ export class ReaderView extends ItemView {
   }
 
   private async navigateBackToDashboard(): Promise<void> {
-    const dashboardLeaves =
-      this.app.workspace.getLeavesOfType(RSS_DASHBOARD_VIEW_TYPE);
+    const dashboardLeaves = this.app.workspace.getLeavesOfType(
+      RSS_DASHBOARD_VIEW_TYPE,
+    );
     const targetLeaf =
       this.returnLeaf && dashboardLeaves.includes(this.returnLeaf)
         ? this.returnLeaf
-        : dashboardLeaves[0] ?? null;
+        : (dashboardLeaves[0] ?? null);
 
     if (targetLeaf) {
       this.app.workspace.setActiveLeaf(targetLeaf, { focus: true });
@@ -99,13 +101,15 @@ export class ReaderView extends ItemView {
       item: FeedItem,
       updates: Partial<FeedItem>,
       shouldRerender?: boolean,
-    ) => void,
+    ) => void | Promise<void>,
+    onPersistSettings?: () => void | Promise<void>,
   ) {
     super(leaf);
     this.settings = settings;
     this.articleSaver = articleSaver;
     this.onArticleSave = onArticleSave;
     this.onArticleUpdate = onArticleUpdate;
+    this.onPersistSettings = onPersistSettings;
 
     try {
       const appWithPlugins = this.app as unknown as {
@@ -595,7 +599,12 @@ export class ReaderView extends ItemView {
       return false;
     }
 
-    const feedHtml = (fullContent || item.content || item.description || "").trim();
+    const feedHtml = (
+      fullContent ||
+      item.content ||
+      item.description ||
+      ""
+    ).trim();
     if (!feedHtml) {
       return false;
     }
@@ -670,7 +679,8 @@ export class ReaderView extends ItemView {
     }
 
     const hasDistinctMainContent =
-      mainHtml && (!descriptionHtml || !this.isEquivalentHtml(mainHtml, descriptionHtml));
+      mainHtml &&
+      (!descriptionHtml || !this.isEquivalentHtml(mainHtml, descriptionHtml));
 
     if (hasDistinctMainContent || !descriptionHtml) {
       const contentContainer = this.readingContainer.createDiv({
@@ -788,7 +798,10 @@ export class ReaderView extends ItemView {
 
     try {
       const parser = new DOMParser();
-      const firstDoc = parser.parseFromString(ensureUtf8Meta(first), "text/html");
+      const firstDoc = parser.parseFromString(
+        ensureUtf8Meta(first),
+        "text/html",
+      );
       const secondDoc = parser.parseFromString(
         ensureUtf8Meta(second),
         "text/html",
@@ -1026,7 +1039,7 @@ export class ReaderView extends ItemView {
     }
 
     // Notify parent to persist the change
-    this.onArticleUpdate(this.currentItem, { read: newReadState }, false);
+    void this.onArticleUpdate(this.currentItem, { read: newReadState }, false);
   }
 
   private toggleStarStatus(): void {
@@ -1047,7 +1060,11 @@ export class ReaderView extends ItemView {
     }
 
     // Notify parent to persist the change
-    this.onArticleUpdate(this.currentItem, { starred: newStarState }, false);
+    void this.onArticleUpdate(
+      this.currentItem,
+      { starred: newStarState },
+      false,
+    );
   }
 
   private showTagsDropdown(event: MouseEvent, item: FeedItem): void {
@@ -1097,7 +1114,9 @@ export class ReaderView extends ItemView {
         e.stopPropagation();
         this.closeTagsDropdownPortal();
         // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-        void (this.app as any).plugins.plugins["rss-dashboard"].openTagsSettings();
+        void (this.app as any).plugins.plugins[
+          "rss-dashboard"
+        ].openTagsSettings();
       });
       const doneBtn = sheetActions.createEl("button", {
         cls: "rss-dashboard-tags-sheet-btn rss-dashboard-tags-sheet-btn-done",
@@ -1139,7 +1158,7 @@ export class ReaderView extends ItemView {
         item.tags = item.tags.filter((t) => t.name !== tag.name);
       }
       this.syncCurrentItemTagDisplay();
-      this.onArticleUpdate(item, {}, false);
+      void this.onArticleUpdate(item, {}, false);
       new Notice(`Tag "${tag.name}" deleted successfully!`);
       updateTagSeparatorVisibility();
     };
@@ -1200,7 +1219,7 @@ export class ReaderView extends ItemView {
           onSave: async () => {
             this.syncCurrentItemTagDisplay();
             rerenderTagItems();
-            this.onArticleUpdate(item, {}, false);
+            void this.onArticleUpdate(item, {}, false);
           },
         });
       });
@@ -1224,78 +1243,79 @@ export class ReaderView extends ItemView {
     updateTagSeparatorVisibility();
 
     if (!isMobile) {
-    const inlineAddRow = portalDropdown.createDiv({
-      cls: "rss-dashboard-tag-inline-add-row",
-    });
+      const inlineAddRow = portalDropdown.createDiv({
+        cls: "rss-dashboard-tag-inline-add-row",
+      });
 
-    const colorInput = inlineAddRow.createEl("input", {
-      attr: {
-        type: "color",
-        value: "#3498db",
-      },
-      cls: "rss-dashboard-tag-inline-color",
-    });
+      const colorInput = inlineAddRow.createEl("input", {
+        attr: {
+          type: "color",
+          value: "#3498db",
+        },
+        cls: "rss-dashboard-tag-inline-color",
+      });
 
-    const nameInput = inlineAddRow.createEl("input", {
-      attr: {
-        type: "text",
-        placeholder: "Add new tag...",
-        autocomplete: "off",
-      },
-      cls: "rss-dashboard-tag-inline-input",
-    });
-    nameInput.spellcheck = false;
+      const nameInput = inlineAddRow.createEl("input", {
+        attr: {
+          type: "text",
+          placeholder: "Add new tag...",
+          autocomplete: "off",
+        },
+        cls: "rss-dashboard-tag-inline-input",
+      });
+      nameInput.spellcheck = false;
 
-    const addButton = inlineAddRow.createEl("button", {
-      cls: "rss-dashboard-tag-inline-button",
-      attr: { title: "Add tag" },
-    });
-    setIcon(addButton, "plus");
+      const addButton = inlineAddRow.createEl("button", {
+        cls: "rss-dashboard-tag-inline-button",
+        attr: { title: "Add tag" },
+      });
+      setIcon(addButton, "plus");
 
-    const submitInlineTag = () => {
-      const tagName = nameInput.value.trim();
-      const tagColor = colorInput.value;
+      const submitInlineTag = () => {
+        const tagName = nameInput.value.trim();
+        const tagColor = colorInput.value;
 
-      if (!tagName) {
-        new Notice("Please enter a tag name!");
-        return;
-      }
+        if (!tagName) {
+          new Notice("Please enter a tag name!");
+          return;
+        }
 
-      if (
-        this.settings.availableTags.some(
-          (tag) => tag.name.toLowerCase() === tagName.toLowerCase(),
-        )
-      ) {
-        new Notice("A tag with this name already exists!");
-        return;
-      }
+        if (
+          this.settings.availableTags.some(
+            (tag) => tag.name.toLowerCase() === tagName.toLowerCase(),
+          )
+        ) {
+          new Notice("A tag with this name already exists!");
+          return;
+        }
 
-      const newTag: Tag = {
-        name: tagName,
-        color: tagColor,
+        const newTag: Tag = {
+          name: tagName,
+          color: tagColor,
+        };
+
+        this.settings.availableTags.push(newTag);
+        void this.onPersistSettings?.();
+        this.toggleTag(item, newTag, true);
+        appendTagItem(newTag, true);
+
+        nameInput.value = "";
+        requestAnimationFrame(() => nameInput.focus());
+        new Notice(`Tag "${tagName}" added`);
       };
 
-      this.settings.availableTags.push(newTag);
-      this.toggleTag(item, newTag, true);
-      appendTagItem(newTag, true);
-
-      nameInput.value = "";
-      requestAnimationFrame(() => nameInput.focus());
-      new Notice(`Tag "${tagName}" added`);
-    };
-
-    addButton.addEventListener("click", (e) => {
-      e.stopPropagation();
-      submitInlineTag();
-    });
-
-    nameInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
+      addButton.addEventListener("click", (e) => {
         e.stopPropagation();
         submitInlineTag();
-      }
-    });
+      });
+
+      nameInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.stopPropagation();
+          submitInlineTag();
+        }
+      });
     } // end !isMobile
 
     const rect = anchor.getBoundingClientRect();
@@ -1308,7 +1328,11 @@ export class ReaderView extends ItemView {
       const syncMobileViewportHeight = () => {
         const vvp = targetWindow.visualViewport;
         const viewportHeight = vvp?.height ?? targetWindow.innerHeight;
-        portalDropdown.style.setProperty("max-height", `${viewportHeight - 16}px`, "important");
+        portalDropdown.style.setProperty(
+          "max-height",
+          `${viewportHeight - 16}px`,
+          "important",
+        );
       };
       syncMobileViewportHeight();
 
@@ -1317,8 +1341,14 @@ export class ReaderView extends ItemView {
         visualViewport.addEventListener("resize", syncMobileViewportHeight);
         visualViewport.addEventListener("scroll", syncMobileViewportHeight);
         this.tagsDropdownViewportCleanup = () => {
-          visualViewport.removeEventListener("resize", syncMobileViewportHeight);
-          visualViewport.removeEventListener("scroll", syncMobileViewportHeight);
+          visualViewport.removeEventListener(
+            "resize",
+            syncMobileViewportHeight,
+          );
+          visualViewport.removeEventListener(
+            "scroll",
+            syncMobileViewportHeight,
+          );
         };
       } else {
         targetWindow.addEventListener("resize", syncMobileViewportHeight);
@@ -1408,7 +1438,7 @@ export class ReaderView extends ItemView {
     }
 
     // Notify parent to persist the change
-    this.onArticleUpdate(item, { tags: [...item.tags] }, false);
+    void this.onArticleUpdate(item, { tags: [...item.tags] }, false);
   }
 
   private syncCurrentItemTagDisplay(): void {

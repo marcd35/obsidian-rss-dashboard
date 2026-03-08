@@ -35,3 +35,5 @@ docs/archive
 CLAUDE.md
 agent.md
 AGENTS.md
+.cursorrules
+.agent/workflows/build.md

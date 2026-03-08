@@ -1,4 +1,4 @@
-import { Notice, Setting } from "obsidian";
+import { Notice, Setting, ToggleComponent } from "obsidian";
 import { AutoTagService } from "../services/auto-tag-service";
 import {
   AutoTagCondition,
@@ -12,7 +12,6 @@ interface AutoTagRuleEditorOptions {
   containerEl: HTMLElement;
   settings: RssDashboardSettings;
   onChange: () => void | Promise<void>;
-  onReapply: () => void | Promise<void>;
 }
 
 type CommitOptions = {
@@ -59,7 +58,7 @@ const URL_TARGET_OPTIONS: TargetOption<AutoTagUrlTarget>[] = [
 export function renderAutoTagRuleEditor(
   options: AutoTagRuleEditorOptions,
 ): void {
-  const { containerEl, settings, onChange, onReapply } = options;
+  const { containerEl, settings, onChange } = options;
   containerEl.empty();
   containerEl.addClass("rss-auto-tag-editor-shell");
 
@@ -72,39 +71,7 @@ export function renderAutoTagRuleEditor(
     })();
   };
 
-  const actionsSurface = containerEl.createDiv({
-    cls: "rss-auto-tag-surface rss-auto-tag-actions-surface",
-  });
-
-  new Setting(actionsSurface)
-    .setName("Scan all and apply auto tagging")
-    .setDesc("Scan every stored article and apply enabled auto-tagging rules.")
-    .setClass("rss-auto-tag-action-setting")
-    .addButton((button) => {
-      button
-        .setButtonText("Scan and tag")
-        .setCta()
-        .onClick(() => {
-          void onReapply();
-        });
-      button.buttonEl.addClass("rss-auto-tag-action-button");
-    });
-
-  const rulesSurface = containerEl.createDiv({
-    cls: "rss-auto-tag-surface rss-auto-tag-rules-surface",
-  });
-
-  new Setting(rulesSurface)
-    .setName("Custom rules")
-    .setHeading()
-    .setClass("rss-auto-tag-section-heading");
-
-  rulesSurface.createEl("p", {
-    cls: "rss-auto-tag-section-description",
-    text: "Create rules that apply tags from title, summary, content, feed URL, or article URL matches.",
-  });
-
-  const rulesList = rulesSurface.createDiv({
+  const rulesList = containerEl.createDiv({
     cls: "rss-auto-tag-rules-list",
   });
 
@@ -120,7 +87,7 @@ export function renderAutoTagRuleEditor(
     });
   }
 
-  new Setting(rulesSurface)
+  new Setting(containerEl)
     .setClass("rss-auto-tag-footer-setting")
     .addButton((button) => {
       button
@@ -191,7 +158,11 @@ function renderRuleCard(
     cls: "rss-auto-tag-rule-body",
   });
 
-  new Setting(ruleBody)
+  const ruleSettingsGroup = ruleBody.createDiv({
+    cls: "rss-auto-tag-rule-settings-group",
+  });
+
+  new Setting(ruleSettingsGroup)
     .setName("Rule name")
     .setDesc("Give this rule a recognizable label.")
     .setClass("rss-auto-tag-card-setting")
@@ -207,7 +178,7 @@ function renderRuleCard(
       });
     });
 
-  new Setting(ruleBody)
+  new Setting(ruleSettingsGroup)
     .setName("Target tag")
     .setDesc("Choose which existing tag this rule will apply.")
     .setClass("rss-auto-tag-card-setting")
@@ -225,7 +196,7 @@ function renderRuleCard(
       });
     });
 
-  new Setting(ruleBody)
+  new Setting(ruleSettingsGroup)
     .setName("Match logic")
     .setDesc("Choose whether any condition or every condition must match.")
     .setClass("rss-auto-tag-card-setting")
@@ -257,7 +228,9 @@ function renderRuleCard(
   });
   const conditionsHeader = new Setting(conditionsSection)
     .setName("Conditions")
-    .setDesc("Add one or more checks to determine when the tag should be applied.")
+    .setDesc(
+      "Add one or more checks to determine when the tag should be applied.",
+    )
     .setClass("rss-auto-tag-conditions-heading");
   conditionsHeader.setHeading();
 
@@ -395,7 +368,9 @@ function renderConditionCard(
   if (condition.type === "url-pattern") {
     new Setting(conditionContainer)
       .setName("URL match mode")
-      .setDesc("Contains looks for partial matches. Wildcard treats `*` as any characters.")
+      .setDesc(
+        "Contains looks for partial matches. Wildcard treats `*` as any characters.",
+      )
       .setClass("rss-auto-tag-card-setting")
       .setDisabled(conditionDisabled)
       .addDropdown((dropdown) => {
@@ -404,8 +379,9 @@ function renderConditionCard(
         dropdown.addOption("wildcard", "Wildcard (*)");
         dropdown.setValue(condition.urlPatternMode || "contains");
         dropdown.onChange((value) => {
-          condition.urlPatternMode =
-            value as NonNullable<AutoTagCondition["urlPatternMode"]>;
+          condition.urlPatternMode = value as NonNullable<
+            AutoTagCondition["urlPatternMode"]
+          >;
           commit();
         });
       });
@@ -423,12 +399,7 @@ function renderConditionCard(
       );
   }
 
-  renderTargetsGroup(
-    conditionContainer,
-    condition,
-    conditionDisabled,
-    commit,
-  );
+  renderTargetsGroup(conditionContainer, condition, conditionDisabled, commit);
 
   const validationList = conditionContainer.createDiv({
     cls: "rss-auto-tag-validation-list",
@@ -474,61 +445,61 @@ function renderTargetsGroup(
   disabled: boolean,
   commit: (options?: CommitOptions) => void,
 ): void {
-  const groupContainer = containerEl.createDiv({
-    cls: "rss-auto-tag-targets-group",
-  });
-
-  new Setting(groupContainer)
-    .setName(condition.type === "url-pattern" ? "Match against" : "Search in")
+  const targetsSetting = new Setting(containerEl)
+    .setName(condition.type === "url-pattern" ? "Match against" : "Apply to")
     .setDesc(
       condition.type === "url-pattern"
         ? "Choose which URLs this condition should check."
         : "Choose which article fields this condition should search.",
     )
-    .setHeading()
-    .setClass("rss-auto-tag-targets-heading");
+    .setClass("rss-auto-tag-card-setting")
+    .setDisabled(disabled);
+
+  targetsSetting.controlEl.addClass("rss-auto-tag-targets-inline-row");
 
   if (condition.type === "url-pattern") {
     URL_TARGET_OPTIONS.forEach((option) => {
-      new Setting(groupContainer)
-        .setName(option.label)
-        .setDesc(option.description)
-        .setClass("rss-auto-tag-target-row")
+      const toggleWrapper = targetsSetting.controlEl.createDiv({
+        cls: "rss-auto-tag-target-inline-item",
+      });
+      new ToggleComponent(toggleWrapper)
         .setDisabled(disabled)
-        .addToggle((toggle) =>
-          toggle
-            .setValue(condition.urlTargets.includes(option.key))
-            .onChange((value) => {
-              condition.urlTargets = updateTargetList(
-                condition.urlTargets,
-                option.key,
-                value,
-              );
-              commit({ rerender: true });
-            }),
-        );
+        .setValue(condition.urlTargets.includes(option.key))
+        .onChange((value) => {
+          condition.urlTargets = updateTargetList(
+            condition.urlTargets,
+            option.key,
+            value,
+          );
+          commit({ rerender: true });
+        });
+      toggleWrapper.createSpan({
+        text: option.label,
+        cls: "rss-auto-tag-target-inline-label",
+      });
     });
     return;
   }
 
   TEXT_TARGET_OPTIONS.forEach((option) => {
-    new Setting(groupContainer)
-      .setName(option.label)
-      .setDesc(option.description)
-      .setClass("rss-auto-tag-target-row")
+    const toggleWrapper = targetsSetting.controlEl.createDiv({
+      cls: "rss-auto-tag-target-inline-item",
+    });
+    new ToggleComponent(toggleWrapper)
       .setDisabled(disabled)
-      .addToggle((toggle) =>
-        toggle
-          .setValue(condition.textTargets.includes(option.key))
-          .onChange((value) => {
-            condition.textTargets = updateTargetList(
-              condition.textTargets,
-              option.key,
-              value,
-            );
-            commit({ rerender: true });
-          }),
-      );
+      .setValue(condition.textTargets.includes(option.key))
+      .onChange((value) => {
+        condition.textTargets = updateTargetList(
+          condition.textTargets,
+          option.key,
+          value,
+        );
+        commit({ rerender: true });
+      });
+    toggleWrapper.createSpan({
+      text: option.label,
+      cls: "rss-auto-tag-target-inline-label",
+    });
   });
 }
 

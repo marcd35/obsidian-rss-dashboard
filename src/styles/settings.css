@@ -791,7 +791,8 @@
 }
 
 .rss-auto-tag-rule-header.setting-item,
-.rss-auto-tag-condition-header.setting-item {
+.rss-auto-tag-condition-header.setting-item,
+.rss-auto-tag-conditions-heading.setting-item {
   margin: 0;
   padding: 14px 16px 10px;
   border-top: 0;
@@ -799,18 +800,21 @@
 }
 
 .rss-auto-tag-rule-header .setting-item-name,
-.rss-auto-tag-condition-header .setting-item-name {
+.rss-auto-tag-condition-header .setting-item-name,
+.rss-auto-tag-conditions-heading .setting-item-name {
   font-size: 14px;
   font-weight: 600;
 }
 
 .rss-auto-tag-rule-header .setting-item-description,
-.rss-auto-tag-condition-header .setting-item-description {
+.rss-auto-tag-condition-header .setting-item-description,
+.rss-auto-tag-conditions-heading .setting-item-description {
   font-size: 12px;
 }
 
 .rss-auto-tag-rule-body,
-.rss-auto-tag-condition-card > .setting-item:not(.rss-auto-tag-condition-header),
+.rss-auto-tag-condition-card
+  > .setting-item:not(.rss-auto-tag-condition-header),
 .rss-auto-tag-targets-group {
   margin-inline: 16px;
 }
@@ -819,15 +823,20 @@
   padding-bottom: 16px;
 }
 
-.rss-auto-tag-card-setting.setting-item,
-.rss-auto-tag-target-row.setting-item,
-.rss-auto-tag-conditions-heading.setting-item {
+.rss-auto-tag-rule-settings-group {
+  margin-top: 4px;
+}
+
+.rss-auto-tag-rule-settings-group .rss-auto-tag-card-setting.setting-item {
+  padding: 6px 0;
+}
+
+.rss-auto-tag-card-setting.setting-item {
   margin: 0;
   padding-inline: 0;
 }
 
-.rss-auto-tag-card-setting.setting-item .setting-item-info,
-.rss-auto-tag-target-row.setting-item .setting-item-info {
+.rss-auto-tag-card-setting.setting-item .setting-item-info {
   padding-right: 16px;
 }
 
@@ -859,60 +868,38 @@
   flex-direction: column;
   gap: 12px;
   margin-top: 14px;
-}
-
-.rss-auto-tag-conditions-heading.setting-item {
-  padding-top: 0;
-  border-top: 0;
-}
-
-.rss-auto-tag-conditions-heading .setting-item-name {
-  font-size: 13px;
+  margin-inline: -16px;
 }
 
 .rss-auto-tag-conditions-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  margin-inline: 16px;
 }
 
-.rss-auto-tag-condition-card > .setting-item:not(.rss-auto-tag-condition-header) {
+.rss-auto-tag-condition-card
+  > .setting-item:not(.rss-auto-tag-condition-header) {
   padding-inline: 0;
 }
 
-.rss-auto-tag-targets-group {
-  margin-top: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
-  background: var(--background-secondary);
+.rss-auto-tag-targets-inline-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
 }
 
-.rss-auto-tag-targets-heading.setting-item,
-.rss-auto-tag-target-row.setting-item:first-of-type {
-  border-top: 0;
-  padding-top: 0;
+.rss-auto-tag-target-inline-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.rss-auto-tag-targets-heading.setting-item,
-.rss-auto-tag-target-row.setting-item {
-  margin: 0;
-  padding-inline: 0;
-}
-
-.rss-auto-tag-targets-heading .setting-item-name {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--text-muted);
-}
-
-.rss-auto-tag-targets-heading .setting-item-description {
-  font-size: 12px;
-}
-
-.rss-auto-tag-target-row .setting-item-name {
+.rss-auto-tag-target-inline-label {
   font-size: 13px;
+  color: var(--text-normal);
+  cursor: pointer;
 }
 
 .rss-auto-tag-action-button,
@@ -1266,8 +1253,9 @@
   }
 
   .rss-auto-tag-card-setting.setting-item,
-  .rss-auto-tag-target-row.setting-item,
+  .rss-auto-tag-targets-inline-row,
   .rss-auto-tag-rule-header.setting-item,
+  .rss-auto-tag-conditions-heading.setting-item,
   .rss-auto-tag-condition-header.setting-item {
     flex-direction: column;
     align-items: stretch;
@@ -1275,22 +1263,27 @@
   }
 
   .rss-auto-tag-card-setting .setting-item-info,
-  .rss-auto-tag-target-row .setting-item-info,
   .rss-auto-tag-rule-header .setting-item-info,
+  .rss-auto-tag-conditions-heading .setting-item-info,
   .rss-auto-tag-condition-header .setting-item-info {
     width: 100%;
     padding-right: 0;
   }
 
   .rss-auto-tag-card-setting .setting-item-control,
-  .rss-auto-tag-target-row .setting-item-control,
   .rss-auto-tag-rule-header .setting-item-control,
+  .rss-auto-tag-conditions-heading .setting-item-control,
   .rss-auto-tag-condition-header .setting-item-control {
     width: 100%;
     margin-left: 0;
     justify-content: flex-start;
     flex-wrap: wrap;
     gap: 8px;
+  }
+
+  .rss-auto-tag-targets-inline-row {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .rss-auto-tag-text-input,
@@ -1444,7 +1437,8 @@
   }
 
   .rss-auto-tag-rule-body,
-  .rss-auto-tag-condition-card > .setting-item:not(.rss-auto-tag-condition-header),
+  .rss-auto-tag-condition-card
+    > .setting-item:not(.rss-auto-tag-condition-header),
   .rss-auto-tag-targets-group {
     margin-inline: 12px;
   }

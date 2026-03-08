@@ -96,6 +96,7 @@ export interface FeedMetadata {
 }
 
 export interface Tag {
+  id?: number;
   name: string;
   color: string;
 }
@@ -320,7 +321,10 @@ export interface RssDashboardSettings {
   filters: GlobalFilterSettings;
 }
 
-export type SettingsOnly = Omit<RssDashboardSettings, 'feeds' | 'folders' | 'availableTags'>;
+export type SettingsOnly = Omit<
+  RssDashboardSettings,
+  "feeds" | "folders" | "availableTags"
+>;
 
 export const DEFAULT_SETTINGS: RssDashboardSettings = {
   feeds: [],
