@@ -2,82 +2,98 @@
 
 ## 1. Executive Summary
 
-This report documents the identification and resolution of a critical data loss issue related to Obsidian Sync and tag persistence. The incident was characterized by two primary failure modes: local state desynchronization (stale references) and synchronization race conditions (recursive reload loops).
+This report documents the identification and resolution of a critical data loss issue related to Obsidian Sync and tag persistence. The incident was characterized by several failure modes: local state desynchronization (stale references), synchronization race conditions (recursive reload loops), and asynchronous shutdown interruption.
 
-## 2. Technical Root Causes
+## 2. Technical Root Causes (Resolved)
 
-### A. Stale Settings References (The "Reference Bug")
+### A. Stale Settings References
 
-The plugin's `loadSettings()` method was originally implemented as:
+The plugin's `loadSettings()` method originally replaced `this.settings` with a new object literal. However, active Views (Sidebar, Reader, Dashboard) held references to the _initial_ object. Modifications made in those views were never seen by the plugin when calling `saveSettings()`.
+**Fix**: Switched to in-place `Object.assign(this.settings, ...)` updates.
 
-```typescript
-this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-```
+### B. Vault Watcher Race Condition (The "Disappearing Tag" Bug)
 
-This created a **new object reference** every time settings were loaded. However, active Views (Sidebar, Reader, Dashboard) held references to the _initial_ settings object. Consequently, when the plugin reloaded data from disk, views continued to modify the old object, and those changes were never persisted.
+The vault watcher intercepted local writes as external changes because the `isWritingToSettings` flag was cleared before Obsidian's asynchronous filesystem event reached the event loop. The plugin would then reload "stale" JSON data (which lacks tags) over the newly created in-memory tags.
+**Fix**: Implemented 2000-3000ms guard timers (`settingsWriteTimeout`) to bridge the gap between file write completion and watcher event firing.
 
-### B. Missing Reader View Callbacks
+### C. The "Shutdown Race"
 
-New tags created via the `ReaderView` UI were added to the `settings.availableTags` array, but the view lacked a reference to the plugin's `saveSettings()` method, causing the change to reside only in temporary memory.
+The `onunload()` method used a fire-and-forget async IIFE for database syncing. Obsidian terminates the plugin environment immediately after `onunload` returns, often killing the file-write process before the SQLite data hit the disk.
+**Fix**: Refactored `onunload()` to be synchronous, using a new `DatabaseService.saveSync()` method to force a blocking binary flush.
 
-### C. Vault Watcher Race Condition (The "Disappearing Tag" Bug)
+### D. Redundant Database Re-Initialization
 
-Even after `ReaderView` was fixed, a race condition caused data loss during inline tag creation:
+`loadSettings()` was recreating the `DatabaseService` on every call, including those triggered by simple JSON setting changes. This orphaned pending writes and caused unnecessary disk I/O.
+**Fix**: Implemented a singleton pattern for the database service and a `reloadUserSettingsOnly()` method for JSON-only updates.
 
-1. When a new tag is added to the plugin's state, `this.plugin.saveSettings()` is invoked.
-2. This writes the tag-less `usersettings.json` payload, asynchronously resolving the Obsidian filesystem write.
-3. The plugin immediately flipped its `isWritingToSettings` flag back to `false`.
-4. Obsidian's asynchronous `modify` event fired shortly after on the event loop.
-5. Because `isWritingToSettings` was `false`, the vault watcher falsely intercepted the plugin's own write as an external Obsidian Sync change.
-6. The watcher called `loadSettings()`, replacing the active application state with data from the JSON API (which lacks tags) before the SQLite DB finished saving. This completely erased the tags from memory and UI right before the sync interval.
+## 3. Refactor Implemented on 2026-03-08
 
-### D. Sync Conflict & Recursive Reloads
+The latest refactor changed the persistence architecture, but did **not** fully resolve the two user-visible issues below.
 
-Obsidian Sync updates the `.sqlite` database and `usersettings.json` file. Without a file watcher, the plugin remained unaware of external changes. Conversely, adding a naive watcher created a **recursive loop**:
+### E. Canonical Tag Mutation Path Refactor
 
-1. Plugin writes to file.
-2. Watcher detects change.
-3. Watcher triggers reload.
-4. Reload overwrites in-memory changes.
+**What Changed**:
+- Added plugin-owned mutation helpers for article patches and tag mutations in `main.ts`.
+- Routed reader, dashboard article list, sidebar tag actions, and settings tag actions through those helpers instead of direct `availableTags` mutation plus ad hoc saves.
+- Introduced immediate persistence helpers so article and tag mutations use `db.forceSave()` plus `saveSettingsOnly()` instead of the older delayed write pattern.
+- Unified the saved-article path with the same immediate article persistence flow to remove the special `scheduleSave()` case.
 
-## 3. Timeline of Resolution
+**Why This Was Done**:
+- The previous design mixed article-scoped writes with global tag-registry edits.
+- That made tag persistence dependent on which UI surface initiated the change.
+- The goal of the refactor was to make one canonical path responsible for mutating in-memory state and persisting the matching SQLite scope.
 
-| Phase              | Duration | Activities                                                                                                                                                                                                                                                                                                                                  |
-| :----------------- | :------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Detection**      | T-0      | User reported that tags created in Reader View/Article Card submenus disappeared after app restart.                                                                                                                                                                                                                                         |
-| **Analysis**       | T+1h     | Audit of `main.ts` and `ReaderView.ts` identified the stale reference pattern and missing persistence hooks.                                                                                                                                                                                                                                |
-| **Strategy**       | T+2h     | Shifted focus from a "simple bug" to "sync architecture hardening." Proposed "Sync Security" flags and Database Hot-Reloading.                                                                                                                                                                                                              |
-| **Implementation** | T+4h     | Refactored settings to use `Object.assign(this.settings, ...)` (In-place update). Implemented `isWritingToDatabase` guards.                                                                                                                                                                                                                 |
-| **Deep Analysis**  | T+6h     | Discovered that tag adds via the card submenu still failed despite the above fixes. Root cause identified as a race condition where the Obsidian `modify` event fired after `isWritingToSettings` was synchronously cleared, causing `loadSettings` to reload from JSON and wipe the newly created tags before the SQLite DB was persisted. |
-| **Verification**   | T+7h     | Build pipeline cleanup: fixed floating promise errors in `ReaderView` and resolved `TFile` casting issues in `main.ts`. Applied 2000-3000ms debounce timeouts to sync guards (`settingsWriteTimeout`, `databaseWriteTimeout`).                                                                                                              |
-| **Resolution**     | T+8h     | Successful `npm run build`. Verified that tags are accurately retained.                                                                                                                                                                                                                                                                     |
+### F. Folder Path Cache Removal
 
-## 4. Implemented Solutions
+**What Changed**:
+- Removed the long-lived sidebar folder-path cache.
+- Replaced it with a pure folder-path derivation helper computed from the live folder tree.
+- Removed stale cache-reset calls that were previously required before some renders.
 
-### Singleton Settings Reference
+**Why This Was Done**:
+- The old cache could lag behind folder creation or import flows.
+- The intent was to make sidebar rendering derive directly from current state rather than from cache invalidation timing.
 
-All settings updates now use in-place assignment to ensure all plugin components see the same "Source of Truth."
+## 4. Existing Behavior After the Refactor
 
-```typescript
-Object.assign(this.settings, DEFAULT_SETTINGS, data ?? {});
-```
+The following issues still reproduce after the refactor:
 
-### Sync Guards (Write-Safety with Debounce)
+### G. Folder Creation Still Does Not Appear Immediately in the Sidebar
 
-Introduced `isWritingToSettings` and `isWritingToDatabase` flags. These flags are set briefly during local write operations to instruct the vault watcher to ignore the subsequent "modify" event. Because Obsidian's file watcher events are highly asynchronous and can trail the completion of `adapter.write`, these flags are now wrapped in `setTimeout` debounce blocks (2000-3000ms) to ensure the file event buffer is fully consumed before the plugin "listens" to the vault again.
+**Current Behavior**: Creating a new folder from the sidebar still does not reliably make that folder appear immediately in the visible sidebar tree.
 
-### Database Hot-Reload
+**What The Refactor Changed**:
+- The stale folder-path cache was removed, so the previous cache-invalidation explanation is no longer sufficient on its own.
 
-Added `DatabaseService.reinit()` to allow the SQLite connection to refresh its internal state when the underlying file is replaced by Obsidian Sync.
+**Current Interpretation**:
+- Folder creation is still spread across multiple flows (`ensureFolderExists`, sidebar-local add-folder methods, import flows, and dashboard refresh paths).
+- The remaining bug now appears to be in the render/update sequencing after folder mutation, not in cached folder-path derivation.
 
-## 5. Prevention Strategies for Developers
+### H. Multi-Tag Assignment Still Fails in Practice
 
-1. **Never replace `this.settings`**: Always update the existing object to preserve references in views.
-2. **Explicit Promise Handling**: Use the `void` operator for intentional floating promises in UI events to satisfy strict linting.
-3. **Guard File Watchers**: Always distinguish between "Plugin-Internal Writes" and "External Modification" using transient state flags.
+**Current Behavior**: It is still not possible to reliably add more than one tag to an article.
+
+**What The Refactor Changed**:
+- Tag operations now go through canonical mutation helpers and immediate persistence.
+- This addressed the original registry/article drift problem, but did not fully stabilize the active tag-management UI.
+
+**Current Interpretation**:
+- The remaining issue is now likely in the interaction between tag mutation callbacks, article/view refresh timing, and the current item/article references held by the open UI.
+- In other words: persistence scope was corrected, but repeated tag assignment in the same interaction still behaves incorrectly.
+
+## 5. Timeline of Resolution
+
+| Phase                | Activities                                                                                                               |
+| :------------------- | :----------------------------------------------------------------------------------------------------------------------- |
+| **Detection**        | User reported tags disappearing after restart.                                                                           |
+| **Analysis**         | Audit identified stale object references and missing persistence hooks in `ReaderView`.                                  |
+| **Hardening**        | Introduced sync guards, in-place settings updates, and synchronous shutdown flushes.                                     |
+| **SQLite Migration** | Moved tags and feeds to SQLite to avoid JSON payload limits and sync conflicts.                                          |
+| **Targeted Refactor**| Replaced split tag mutation paths with canonical plugin-owned helpers and removed stale sidebar folder-path caching.      |
+| **Current State**    | **Status: Partially resolved.** The architecture changed, but folder visibility and multi-tag assignment still fail.      |
 
 ---
 
-**Status**: Resolved
+**Status**: Partial Refactor Applied; User-Visible Issues Persist
 **Date**: 2026-03-08
-**Verification**: `npm run build` PASS
+**Verification**: Build and unit tests passed, but manual behavior still reproduces the sidebar-folder and multi-tag issues

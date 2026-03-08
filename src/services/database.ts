@@ -902,7 +902,25 @@ export class DatabaseService {
       byteOffset === 0 && byteLength === rawBuffer.byteLength
         ? rawBuffer
         : rawBuffer.slice(byteOffset, byteOffset + byteLength);
+    await this.adapter.readBinary(dbPath); // Verification read (optional but present in old code)
     await this.adapter.writeBinary(dbPath, exactBuffer);
+  }
+
+  /**
+   * Synchronously exports the in-memory database and initiates a write.
+   * This is intended for use during plugin shutdown (onunload).
+   */
+  saveSync(adapter: DataAdapter, pluginDir: string): void {
+    if (!this.db) return;
+    const data = this.db.export();
+    const dbPath = `${pluginDir}/${DB_FILENAME}`;
+    const buffer = data.buffer.slice(
+      data.byteOffset,
+      data.byteOffset + data.byteLength,
+    );
+    // Note: writeBinary is async, but initiating it here before the process
+    // exits is our best chance at persistence during a synchronous shutdown.
+    void adapter.writeBinary(dbPath, buffer as ArrayBuffer);
   }
 
   scheduleSave(delayMs = 2000): void {

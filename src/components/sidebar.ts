@@ -7,7 +7,8 @@ import {
   FeedFilterSettings,
 } from "../types/types";
 import { AddFeedModal, EditFeedModal } from "../modals/feed-manager-modal";
-import { deleteTagFromSettings, showEditTagModal } from "../utils/tag-utils";
+import { showEditTagModal } from "../utils/tag-utils";
+import { collectFolderPaths } from "../utils/folder-utils";
 import type RssDashboardPlugin from "../../main";
 
 export interface SidebarOptions {
@@ -214,7 +215,6 @@ export class Sidebar {
   private callbacks: SidebarCallbacks;
   private app: App;
   private plugin: RssDashboardPlugin;
-  private cachedFolderPaths: string[] | null = null;
   private isSearchExpanded = false;
   private searchQuery = "";
   // Legacy toggle-row state (disabled by design after header toolbar migration).
@@ -281,26 +281,8 @@ export class Sidebar {
     return `https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://${domain}&size=32`;
   }
 
-  private getCachedFolderPaths(): string[] {
-    if (!this.cachedFolderPaths) {
-      this.cachedFolderPaths = [];
-      const paths = this.cachedFolderPaths;
-      const collectPaths = (folders: Folder[], base = "") => {
-        for (const f of folders) {
-          const path = base ? `${base}/${f.name}` : f.name;
-          paths.push(path);
-          if (f.subfolders && f.subfolders.length > 0) {
-            collectPaths(f.subfolders, path);
-          }
-        }
-      };
-      collectPaths(this.settings.folders ?? []);
-    }
-    return this.cachedFolderPaths;
-  }
-
-  public clearFolderPathCache(): void {
-    this.cachedFolderPaths = null;
+  private getFolderPaths(): string[] {
+    return collectFolderPaths(this.settings.folders ?? []);
   }
 
   constructor(
@@ -455,7 +437,7 @@ export class Sidebar {
       );
     }
 
-    const allFolderPaths = new Set(this.getCachedFolderPaths());
+    const allFolderPaths = new Set(this.getFolderPaths());
     const rootFeeds = this.settings.feeds.filter(
       (feed) => !feed.folder || !allFolderPaths.has(feed.folder),
     );
@@ -1263,7 +1245,6 @@ export class Sidebar {
       });
 
       await this.plugin.saveSettings();
-      this.clearFolderPathCache();
       this.render();
     }
   }
@@ -1294,7 +1275,6 @@ export class Sidebar {
       ) {
         this.options.currentFeed = null;
       }
-      this.clearFolderPathCache();
       this.render();
     }
   }
@@ -1323,7 +1303,6 @@ export class Sidebar {
       ) {
         this.options.currentFeed = null;
       }
-      this.clearFolderPathCache();
       this.render();
     }
   }
@@ -1361,7 +1340,6 @@ export class Sidebar {
       const parent = this.findFolderByPath(parentPath);
       if (parent) parent.modifiedAt = Date.now();
     }
-    this.clearFolderPathCache();
     this.render();
   }
 
@@ -1480,15 +1458,13 @@ export class Sidebar {
           name: tagName,
           color: tagColor,
         };
-        this.settings.availableTags.push(newTag);
 
-        void this.plugin.saveSettings();
-
-        this.render();
-
-        document.body.removeChild(modal);
-
-        new Notice(`Tag "${tagName}" added successfully!`);
+        void (async () => {
+          await this.plugin.createTag(newTag);
+          await this.plugin.refreshOpenViews();
+          document.body.removeChild(modal);
+          new Notice(`Tag "${tagName}" added successfully!`);
+        })();
       } else {
         new Notice("Please enter a tag name!");
       }
@@ -1524,7 +1500,7 @@ export class Sidebar {
           this.showConfirmModal(
             `Are you sure you want to delete the tag "${tag.name}"? This will remove the tag from all articles.`,
             () => {
-              this.deleteTag(tag);
+              void this.deleteTag(tag);
             },
           );
         });
@@ -1537,20 +1513,22 @@ export class Sidebar {
     showEditTagModal({
       settings: this.settings,
       tag,
-      onSave: async () => {
-        await this.plugin.saveSettings();
-        this.render();
+      onSave: async (updates) => {
+        const renamed = await this.plugin.renameTag(tag.name, updates);
+        if (renamed) {
+          await this.plugin.refreshOpenViews();
+        }
       },
     });
   }
 
-  private deleteTag(tag: Tag): void {
-    deleteTagFromSettings(this.settings, tag);
+  private async deleteTag(tag: Tag): Promise<void> {
+    const deleted = await this.plugin.deleteTag(tag.name);
+    if (!deleted) {
+      return;
+    }
 
-    void this.plugin.saveSettings();
-
-    this.render();
-
+    await this.plugin.refreshOpenViews();
     new Notice(`Tag "${tag.name}" deleted successfully!`);
   }
 
@@ -1965,7 +1943,7 @@ export class Sidebar {
 
     const updateCollapseIcon = () => {
       if (!cachedFolderPaths) {
-        cachedFolderPaths = this.getCachedFolderPaths();
+        cachedFolderPaths = this.getFolderPaths();
       }
 
       const collapsedFolders = this.settings.collapsedFolders || [];
@@ -2192,7 +2170,7 @@ export class Sidebar {
     menu.addSeparator();
 
     // Add all available folders
-    const allFolders = this.getCachedFolderPaths();
+    const allFolders = this.getFolderPaths();
     if (allFolders.length > 0) {
       allFolders.sort((a, b) => a.localeCompare(b));
 
@@ -2363,7 +2341,7 @@ export class Sidebar {
         (feed) => feed.folder === folderPath,
       );
     } else {
-      const allFolderPaths = new Set(this.getCachedFolderPaths());
+      const allFolderPaths = new Set(this.getFolderPaths());
       feedsInFolder = this.settings.feeds.filter(
         (feed) => !feed.folder || !allFolderPaths.has(feed.folder),
       );
@@ -2384,7 +2362,7 @@ export class Sidebar {
         (feed) => feed.folder !== folderPath,
       );
     } else {
-      const allFolderPaths = new Set(this.getCachedFolderPaths());
+      const allFolderPaths = new Set(this.getFolderPaths());
       this.settings.feeds = this.settings.feeds.filter(
         (feed) => feed.folder && allFolderPaths.has(feed.folder),
       );
@@ -2441,7 +2419,7 @@ export class Sidebar {
   }
 
   private toggleAllFolders(): void {
-    const allFolderPaths = this.getCachedFolderPaths();
+    const allFolderPaths = this.getFolderPaths();
 
     if (allFolderPaths.length === 0) {
       return;

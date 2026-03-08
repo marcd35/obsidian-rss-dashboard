@@ -25,9 +25,20 @@ import { Readability } from "@mozilla/readability";
 import TurndownService from "turndown";
 import { ensureUtf8Meta } from "../utils/platform-utils";
 import { RSS_DASHBOARD_VIEW_TYPE } from "./dashboard-view";
-import { deleteTagFromSettings, showEditTagModal } from "../utils/tag-utils";
+import { showEditTagModal } from "../utils/tag-utils";
 
 export const RSS_READER_VIEW_TYPE = "rss-reader-view";
+
+interface ReaderTagActions {
+  onToggleArticleTag: (
+    item: FeedItem,
+    tag: Tag,
+    checked: boolean,
+  ) => Promise<void> | void;
+  onCreateTagAndAssign: (item: FeedItem, tag: Tag) => Promise<void> | void;
+  onRenameTag: (previousName: string, nextTag: Tag) => Promise<void> | void;
+  onDeleteTag: (tagName: string) => Promise<void> | void;
+}
 
 export class ReaderView extends ItemView {
   private currentItem: FeedItem | null = null;
@@ -40,8 +51,7 @@ export class ReaderView extends ItemView {
     item: FeedItem,
     updates: Partial<FeedItem>,
     shouldRerender?: boolean,
-  ) => void | Promise<void>;
-  private onPersistSettings?: () => void | Promise<void>;
+  ) => void;
   private webViewerIntegration: WebViewerIntegration | null = null;
   private podcastPlayer: PodcastPlayer | null = null;
   private videoPlayer: VideoPlayer | null = null;
@@ -57,6 +67,7 @@ export class ReaderView extends ItemView {
     null;
   private tagsDropdownDocument: Document | null = null;
   private tagsDropdownViewportCleanup: (() => void) | null = null;
+  private tagActions: ReaderTagActions;
 
   public setReturnLeaf(leaf: WorkspaceLeaf | null): void {
     this.returnLeaf = leaf;
@@ -101,15 +112,15 @@ export class ReaderView extends ItemView {
       item: FeedItem,
       updates: Partial<FeedItem>,
       shouldRerender?: boolean,
-    ) => void | Promise<void>,
-    onPersistSettings?: () => void | Promise<void>,
+    ) => void,
+    tagActions: ReaderTagActions,
   ) {
     super(leaf);
     this.settings = settings;
     this.articleSaver = articleSaver;
     this.onArticleSave = onArticleSave;
     this.onArticleUpdate = onArticleUpdate;
-    this.onPersistSettings = onPersistSettings;
+    this.tagActions = tagActions;
 
     try {
       const appWithPlugins = this.app as unknown as {
@@ -1039,7 +1050,7 @@ export class ReaderView extends ItemView {
     }
 
     // Notify parent to persist the change
-    void this.onArticleUpdate(this.currentItem, { read: newReadState }, false);
+    this.onArticleUpdate(this.currentItem, { read: newReadState }, false);
   }
 
   private toggleStarStatus(): void {
@@ -1060,11 +1071,7 @@ export class ReaderView extends ItemView {
     }
 
     // Notify parent to persist the change
-    void this.onArticleUpdate(
-      this.currentItem,
-      { starred: newStarState },
-      false,
-    );
+    this.onArticleUpdate(this.currentItem, { starred: newStarState }, false);
   }
 
   private showTagsDropdown(event: MouseEvent, item: FeedItem): void {
@@ -1145,7 +1152,7 @@ export class ReaderView extends ItemView {
       }
       updateTagSeparatorVisibility();
     };
-    const deleteTagFromProfile = (tag: Tag): void => {
+    const deleteTagFromProfile = async (tag: Tag): Promise<void> => {
       if (
         !this.settings.availableTags.some(
           (existingTag) => existingTag.name === tag.name,
@@ -1153,12 +1160,12 @@ export class ReaderView extends ItemView {
       ) {
         return;
       }
-      deleteTagFromSettings(this.settings, tag);
-      if (item.tags?.some((t) => t.name === tag.name)) {
-        item.tags = item.tags.filter((t) => t.name !== tag.name);
+
+      await this.tagActions.onDeleteTag(tag.name);
+      if (item.tags?.length) {
+        item.tags = item.tags.filter((itemTag) => itemTag.name !== tag.name);
       }
       this.syncCurrentItemTagDisplay();
-      void this.onArticleUpdate(item, {}, false);
       new Notice(`Tag "${tag.name}" deleted successfully!`);
       updateTagSeparatorVisibility();
     };
@@ -1200,14 +1207,14 @@ export class ReaderView extends ItemView {
       tagCheckbox.addEventListener("change", (e) => {
         e.stopPropagation();
         const isChecked = (e.target as HTMLInputElement).checked;
-        this.toggleTag(item, tag, isChecked);
+        void this.toggleTag(item, tag, isChecked);
       });
 
       tagLabel.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
         tagCheckbox.checked = !tagCheckbox.checked;
-        this.toggleTag(item, tag, tagCheckbox.checked);
+        void this.toggleTag(item, tag, tagCheckbox.checked);
       });
 
       editButton.addEventListener("click", (e) => {
@@ -1216,10 +1223,17 @@ export class ReaderView extends ItemView {
         showEditTagModal({
           settings: this.settings,
           tag,
-          onSave: async () => {
+          onSave: async (updates) => {
+            if (item.tags?.length) {
+              item.tags = item.tags.map((itemTag) =>
+                itemTag.name === tag.name
+                  ? { ...itemTag, name: updates.name, color: updates.color }
+                  : itemTag,
+              );
+            }
+            await this.tagActions.onRenameTag(tag.name, updates);
             this.syncCurrentItemTagDisplay();
             rerenderTagItems();
-            void this.onArticleUpdate(item, {}, false);
           },
         });
       });
@@ -1227,8 +1241,9 @@ export class ReaderView extends ItemView {
       deleteButton.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        deleteTagFromProfile(tag);
-        tagItem.remove();
+        void deleteTagFromProfile(tag).then(() => {
+          tagItem.remove();
+        });
       });
 
       tagItem.appendChild(tagCheckbox);
@@ -1294,14 +1309,14 @@ export class ReaderView extends ItemView {
           color: tagColor,
         };
 
-        this.settings.availableTags.push(newTag);
-        void this.onPersistSettings?.();
-        this.toggleTag(item, newTag, true);
-        appendTagItem(newTag, true);
-
-        nameInput.value = "";
-        requestAnimationFrame(() => nameInput.focus());
-        new Notice(`Tag "${tagName}" added`);
+        void (async () => {
+          await this.tagActions.onCreateTagAndAssign(item, newTag);
+          rerenderTagItems();
+          this.syncCurrentItemTagDisplay();
+          nameInput.value = "";
+          requestAnimationFrame(() => nameInput.focus());
+          new Notice(`Tag "${tagName}" added`);
+        })();
       };
 
       addButton.addEventListener("click", (e) => {
@@ -1424,21 +1439,13 @@ export class ReaderView extends ItemView {
     this.tagsDropdownDocument = null;
   }
 
-  private toggleTag(item: FeedItem, tag: Tag, add: boolean): void {
-    if (!item.tags) {
-      item.tags = [];
-    }
-
-    if (add) {
-      if (!item.tags.some((t) => t.name === tag.name)) {
-        item.tags.push({ ...tag });
-      }
-    } else {
-      item.tags = item.tags.filter((t) => t.name !== tag.name);
-    }
-
-    // Notify parent to persist the change
-    void this.onArticleUpdate(item, { tags: [...item.tags] }, false);
+  private async toggleTag(
+    item: FeedItem,
+    tag: Tag,
+    add: boolean,
+  ): Promise<void> {
+    await this.tagActions.onToggleArticleTag(item, tag, add);
+    this.syncCurrentItemTagDisplay();
   }
 
   private syncCurrentItemTagDisplay(): void {

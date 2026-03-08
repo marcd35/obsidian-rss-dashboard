@@ -1,5 +1,5 @@
 import { Notice, Setting } from "obsidian";
-import { RssDashboardSettings, Tag } from "../types/types";
+import { FeedItem, RssDashboardSettings, Tag } from "../types/types";
 import { AutoTagService } from "../services/auto-tag-service";
 
 interface ShowEditTagModalOptions {
@@ -7,19 +7,79 @@ interface ShowEditTagModalOptions {
   tag: Tag;
   title?: string;
   submitLabel?: string;
-  onSave?: () => void | Promise<void>;
+  onSave?: (updates: { name: string; color: string }) => void | Promise<void>;
+}
+
+export function findTagByName(
+  settings: RssDashboardSettings,
+  tagName: string,
+): Tag | undefined {
+  const normalizedName = tagName.trim().toLowerCase();
+  return settings.availableTags.find(
+    (tag) => tag.name.trim().toLowerCase() === normalizedName,
+  );
+}
+
+export function ensureTagExists(
+  settings: RssDashboardSettings,
+  tag: Tag,
+): { tag: Tag; created: boolean } {
+  const existingTag = findTagByName(settings, tag.name);
+  if (existingTag) {
+    return { tag: existingTag, created: false };
+  }
+
+  const createdTag: Tag = {
+    name: tag.name.trim(),
+    color: tag.color,
+  };
+  settings.availableTags.push(createdTag);
+  return { tag: createdTag, created: true };
+}
+
+export function toggleTagOnArticle(
+  item: FeedItem,
+  tag: Tag,
+  shouldAdd: boolean,
+): boolean {
+  const normalizedName = tag.name.trim().toLowerCase();
+  const currentTags = item.tags ?? [];
+  const hasTag = currentTags.some(
+    (existingTag) => existingTag.name.trim().toLowerCase() === normalizedName,
+  );
+
+  if (shouldAdd) {
+    if (hasTag) {
+      return false;
+    }
+    item.tags = [...currentTags, { ...tag }];
+    return true;
+  }
+
+  if (!hasTag) {
+    return false;
+  }
+
+  item.tags = currentTags.filter(
+    (existingTag) => existingTag.name.trim().toLowerCase() !== normalizedName,
+  );
+  return true;
 }
 
 export function updateTagInSettings(
   settings: RssDashboardSettings,
   tag: Tag,
   updates: { name: string; color: string },
-): void {
+): FeedItem[] {
   const previousName = tag.name;
+  const previousNameLower = previousName.toLowerCase();
+  const affectedItems: FeedItem[] = [];
 
   tag.name = updates.name;
   tag.color = updates.color;
-  AutoTagService.renameTagReferences(settings, previousName, updates.name);
+  if (previousName !== updates.name) {
+    AutoTagService.renameTagReferences(settings, previousName, updates.name);
+  }
 
   settings.feeds.forEach((feed) => {
     feed.items.forEach((item) => {
@@ -27,26 +87,70 @@ export function updateTagInSettings(
         return;
       }
 
+      let changed = false;
       item.tags.forEach((itemTag) => {
-        if (itemTag.name === previousName) {
+        if (itemTag.name.toLowerCase() === previousNameLower) {
           itemTag.name = updates.name;
           itemTag.color = updates.color;
+          changed = true;
         }
       });
+
+      if (changed) {
+        affectedItems.push(item);
+      }
     });
+  });
+
+  return affectedItems;
+}
+
+export function updateTagColorInSettings(
+  settings: RssDashboardSettings,
+  tagName: string,
+  color: string,
+): FeedItem[] {
+  const tag = findTagByName(settings, tagName);
+  if (!tag) {
+    return [];
+  }
+
+  return updateTagInSettings(settings, tag, {
+    name: tag.name,
+    color,
   });
 }
 
 export function deleteTagFromSettings(
   settings: RssDashboardSettings,
   tag: Tag,
-): void {
-  const tagIndex = settings.availableTags.findIndex((t) => t.name === tag.name);
+): FeedItem[] {
+  const affectedItems: FeedItem[] = [];
+  const deletedTagLower = tag.name.toLowerCase();
+  const tagIndex = settings.availableTags.findIndex(
+    (candidateTag) => candidateTag.name.toLowerCase() === deletedTagLower,
+  );
   if (tagIndex !== -1) {
     settings.availableTags.splice(tagIndex, 1);
   }
 
+  settings.feeds.forEach((feed) => {
+    feed.items.forEach((item) => {
+      if (!item.tags?.length) {
+        return;
+      }
+      if (
+        item.tags.some(
+          (itemTag) => itemTag.name.toLowerCase() === deletedTagLower,
+        )
+      ) {
+        affectedItems.push(item);
+      }
+    });
+  });
+
   AutoTagService.removeTagReferences(settings, tag.name);
+  return affectedItems;
 }
 
 export function showEditTagModal({
@@ -129,12 +233,10 @@ export function showEditTagModal({
         return;
       }
 
-      updateTagInSettings(settings, tag, {
+      await onSave?.({
         name: newTagName,
         color: newTagColor,
       });
-
-      await onSave?.();
       closeModal();
 
       new Notice(`Tag "${newTagName}" updated successfully!`);

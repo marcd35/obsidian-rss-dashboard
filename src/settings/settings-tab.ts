@@ -23,7 +23,6 @@ import { ImportOpmlModal } from "../modals/import-opml-modal";
 import { renderAutoTagRuleEditor } from "../components/auto-tag-rule-editor";
 import { renderKeywordFilterEditor } from "../components/keyword-filter-editor";
 import { AutoTagService } from "../services/auto-tag-service";
-import { deleteTagFromSettings } from "../utils/tag-utils";
 
 class TemplateNameModal extends Modal {
   private result: string | null = null;
@@ -2365,19 +2364,10 @@ export class RssDashboardSettingTab extends PluginSettingTab {
         tagSetting
           .addColorPicker((colorPicker) =>
             colorPicker.setValue(tag.color).onChange(async (value) => {
-              const tagIndex = this.plugin.settings.availableTags.findIndex(
-                (candidate) => candidate === tag,
-              );
-              if (tagIndex === -1) {
-                return;
-              }
-
-              this.plugin.settings.availableTags[tagIndex].color = value;
-              await this.plugin.saveSettings();
-              const view = await this.plugin.getActiveDashboardView();
-              if (view) {
-                await this.app.workspace.revealLeaf(view.leaf);
-                view.render();
+              const updated = await this.plugin.updateTagColor(tag.name, value);
+              if (updated) {
+                await this.plugin.refreshOpenViews();
+                renderTagRows(searchInput.value);
               }
             }),
           )
@@ -2386,10 +2376,11 @@ export class RssDashboardSettingTab extends PluginSettingTab {
               .setIcon("trash")
               .setTooltip("Delete tag")
               .onClick(async () => {
-                deleteTagFromSettings(this.plugin.settings, tag);
-                await this.plugin.saveSettings();
-                await this.plugin.refreshOpenViews();
-                renderTagRows(searchInput.value);
+                const deleted = await this.plugin.deleteTag(tag.name);
+                if (deleted) {
+                  await this.plugin.refreshOpenViews();
+                  renderTagRows(searchInput.value);
+                }
               }),
           );
       });
@@ -2509,12 +2500,11 @@ export class RssDashboardSettingTab extends PluginSettingTab {
 
             setAddTagError("");
 
-            this.plugin.settings.availableTags.push({
+            await this.plugin.createTag({
               name,
               color: selectedTagColor,
             });
-
-            await this.plugin.saveSettings();
+            await this.plugin.refreshOpenViews();
             this.display();
           });
 

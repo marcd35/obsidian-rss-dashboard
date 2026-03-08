@@ -7,7 +7,7 @@ import {
   TABLET_LAYOUT_MAX_WIDTH,
 } from "../utils/platform-utils";
 import { HighlightService } from "../services/highlight-service";
-import { deleteTagFromSettings, showEditTagModal } from "../utils/tag-utils";
+import { showEditTagModal } from "../utils/tag-utils";
 
 const MAX_VISIBLE_TAGS = 6;
 
@@ -79,6 +79,17 @@ interface ArticleListCallbacks {
   onMarkAllAsUnread?: () => void;
   onPersistSettings?: () => Promise<void> | void;
   onOpenTagsSettings?: () => Promise<void> | void;
+  onToggleArticleTag?: (
+    article: FeedItem,
+    tag: Tag,
+    checked: boolean,
+  ) => Promise<void> | void;
+  onCreateTagAndAssign?: (
+    article: FeedItem,
+    tag: Tag,
+  ) => Promise<void> | void;
+  onRenameTag?: (previousName: string, nextTag: Tag) => Promise<void> | void;
+  onDeleteTag?: (tagName: string) => Promise<void> | void;
 }
 
 export class ArticleList {
@@ -2279,7 +2290,7 @@ export class ArticleList {
     setIcon(tagsToggle, "tag");
     tagsToggle.addEventListener("click", (e) => {
       e.stopPropagation();
-      this.createPortalDropdown(tagsToggle, article, (tag, checked) => {
+      this.createPortalDropdown(tagsToggle, article, async (tag, checked) => {
         if (!article.tags) article.tags = [];
         if (checked) {
           if (!article.tags.some((t) => t.name === tag.name)) {
@@ -2294,11 +2305,11 @@ export class ArticleList {
           this.articles[index] = { ...article };
         }
 
-        this.callbacks.onArticleUpdate(
-          article,
-          { tags: [...article.tags] },
-          false,
-        );
+        if (this.callbacks.onToggleArticleTag) {
+          await this.callbacks.onToggleArticleTag(article, tag, checked);
+        } else {
+          this.callbacks.onArticleUpdate(article, { tags: [...article.tags] }, false);
+        }
 
         let articleEl = this.container.querySelector(
           `[id="article-${article.guid}"]`,
@@ -2853,7 +2864,7 @@ export class ArticleList {
   private createPortalDropdown(
     toggleElement: HTMLElement,
     article: FeedItem,
-    onTagChange: (tag: Tag, checked: boolean) => void,
+    onTagChange: (tag: Tag, checked: boolean) => Promise<void> | void,
   ): void {
     if (this.tagsDropdownCleanup) {
       this.tagsDropdownCleanup();
@@ -2942,7 +2953,7 @@ export class ArticleList {
       updateTagSeparatorVisibility();
     };
 
-    const deleteTagFromProfile = (tag: Tag) => {
+    const deleteTagFromProfile = async (tag: Tag): Promise<void> => {
       if (
         !this.settings.availableTags.some(
           (existingTag) => existingTag.name === tag.name,
@@ -2951,13 +2962,10 @@ export class ArticleList {
         return;
       }
 
-      deleteTagFromSettings(this.settings, tag);
-
-      if (article.tags?.some((t) => t.name === tag.name)) {
-        onTagChange(tag, false);
+      if (this.callbacks.onDeleteTag) {
+        await this.callbacks.onDeleteTag(tag.name);
       }
 
-      this.persistSettings();
       this.refreshVisibleArticleTags();
       new Notice(`Tag "${tag.name}" deleted successfully!`);
       updateTagSeparatorVisibility();
@@ -3001,7 +3009,13 @@ export class ArticleList {
 
         tagItem.classList.add("rss-dashboard-tag-item-processing");
 
-        onTagChange(tag, isChecked);
+        const result = onTagChange(tag, isChecked);
+        if (result instanceof Promise) {
+          void result.finally(() => {
+            tagItem.classList.remove("rss-dashboard-tag-item-processing");
+          });
+          return;
+        }
 
         window.setTimeout(() => {
           tagItem.classList.remove("rss-dashboard-tag-item-processing");
@@ -3021,8 +3035,8 @@ export class ArticleList {
         showEditTagModal({
           settings: this.settings,
           tag,
-          onSave: async () => {
-            this.persistSettings();
+          onSave: async (updates) => {
+            await this.callbacks.onRenameTag?.(tag.name, updates);
             this.refreshVisibleArticleTags();
             rerenderTagItems();
           },
@@ -3032,8 +3046,9 @@ export class ArticleList {
       deleteButton.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        deleteTagFromProfile(tag);
-        tagItem.remove();
+        void deleteTagFromProfile(tag).then(() => {
+          tagItem.remove();
+        });
       });
 
       tagItem.appendChild(tagCheckbox);
@@ -3099,14 +3114,14 @@ export class ArticleList {
           color: tagColor,
         };
 
-        this.settings.availableTags.push(newTag);
-        this.persistSettings();
-        onTagChange(newTag, true);
-        appendTagItem(newTag, true);
-
-        nameInput.value = "";
-        requestAnimationFrame(() => nameInput.focus());
-        new Notice(`Tag "${tagName}" added`);
+        void (async () => {
+          await this.callbacks.onCreateTagAndAssign?.(article, newTag);
+          this.refreshVisibleArticleTags();
+          rerenderTagItems();
+          nameInput.value = "";
+          requestAnimationFrame(() => nameInput.focus());
+          new Notice(`Tag "${tagName}" added`);
+        })();
       };
 
       addButton.addEventListener("click", (e) => {

@@ -538,12 +538,6 @@ export class ImportOpmlModal extends Modal {
       const dashboardView = await this.plugin.getActiveDashboardView();
 
       if (dashboardView) {
-        // Clear the sidebar's folder path cache to ensure fresh data
-        if (dashboardView.sidebar) {
-          // Explicitly update sidebar's settings reference
-          dashboardView.sidebar["settings"] = this.plugin.settings;
-          dashboardView.sidebar.clearFolderPathCache();
-        }
         // Full re-render
         dashboardView.refresh();
       }

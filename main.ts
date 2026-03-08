@@ -15,6 +15,7 @@ import {
   FeedItem,
   FeedMetadata,
   FeedFilterSettings,
+  Tag,
 } from "./src/types/types";
 import { DatabaseService } from "./src/services/database";
 import { MigrationService } from "./src/services/migrator";
@@ -44,6 +45,18 @@ import { OpmlManager } from "./src/services/opml-manager";
 import { MediaService } from "./src/services/media-service";
 import { sleep, setCssProps } from "./src/utils/platform-utils";
 import { ImportOpmlModal } from "./src/modals/import-opml-modal";
+import {
+  deleteTagFromSettings,
+  ensureTagExists,
+  findTagByName,
+  toggleTagOnArticle,
+  updateTagColorInSettings,
+  updateTagInSettings,
+} from "./src/utils/tag-utils";
+import {
+  persistArticleMutation,
+  persistTagMutation,
+} from "./src/services/mutation-persistence";
 
 export interface FiltersUpdatedEventPayload {
   source: string;
@@ -138,6 +151,288 @@ export default class RssDashboardPlugin extends Plugin {
   public async refreshOpenViews(): Promise<void> {
     await this.refreshDashboardViews();
     await this.refreshReaderViews();
+  }
+
+  private cloneTags(tags?: Tag[]): Tag[] {
+    return tags?.map((tag) => ({ ...tag })) ?? [];
+  }
+
+  private findArticleRecord(
+    feedUrl: string,
+    articleGuid: string,
+  ): { feed: Feed; article: FeedItem } | null {
+    const feed = this.settings.feeds.find((candidate) => candidate.url === feedUrl);
+    if (!feed) {
+      return null;
+    }
+
+    const article = feed.items.find((item) => item.guid === articleGuid);
+    if (!article) {
+      return null;
+    }
+
+    return { feed, article };
+  }
+
+  private async withImmediateDatabaseMutation(
+    mutation: () => Promise<void>,
+  ): Promise<void> {
+    this.isWritingToDatabase = true;
+    if (this.databaseWriteTimeout) {
+      clearTimeout(this.databaseWriteTimeout);
+      this.databaseWriteTimeout = null;
+    }
+
+    try {
+      await mutation();
+    } finally {
+      this.databaseWriteTimeout = setTimeout(() => {
+        this.isWritingToDatabase = false;
+      }, 3000);
+    }
+  }
+
+  public async persistArticlePatch(
+    feedUrl: string,
+    articleGuid: string,
+    updates: Partial<FeedItem>,
+  ): Promise<FeedItem | null> {
+    const record = this.findArticleRecord(feedUrl, articleGuid);
+    if (!record) {
+      return null;
+    }
+
+    const normalizedUpdates: Partial<FeedItem> = { ...updates };
+    if (updates.tags) {
+      normalizedUpdates.tags = this.cloneTags(updates.tags);
+    }
+
+    Object.assign(record.article, normalizedUpdates);
+    if (normalizedUpdates.tags) {
+      record.article.tags = normalizedUpdates.tags;
+    }
+
+    await this.withImmediateDatabaseMutation(async () => {
+      await persistArticleMutation(
+        this.db?.isInitialized() ? this.db : null,
+        () => this.saveSettingsOnly(),
+        record.article,
+      );
+    });
+
+    return record.article;
+  }
+
+  public async toggleArticleTag(
+    feedUrl: string,
+    articleGuid: string,
+    tag: Tag,
+    checked: boolean,
+  ): Promise<FeedItem | null> {
+    const record = this.findArticleRecord(feedUrl, articleGuid);
+    if (!record) {
+      return null;
+    }
+
+    const canonicalTag = findTagByName(this.settings, tag.name) ?? tag;
+    const changed = toggleTagOnArticle(record.article, canonicalTag, checked);
+    if (!changed) {
+      return record.article;
+    }
+
+    await this.withImmediateDatabaseMutation(async () => {
+      await persistArticleMutation(
+        this.db?.isInitialized() ? this.db : null,
+        () => this.saveSettingsOnly(),
+        record.article,
+      );
+    });
+
+    return record.article;
+  }
+
+  public async createTag(tag: Tag): Promise<Tag> {
+    const { tag: createdTag, created } = ensureTagExists(this.settings, tag);
+    if (!created) {
+      return createdTag;
+    }
+
+    await this.withImmediateDatabaseMutation(async () => {
+      await persistTagMutation(
+        this.db?.isInitialized() ? this.db : null,
+        () => this.saveSettingsOnly(),
+        this.settings.availableTags,
+        [],
+      );
+    });
+
+    return createdTag;
+  }
+
+  public async createTagAndAssign(
+    feedUrl: string,
+    articleGuid: string,
+    tag: Tag,
+  ): Promise<FeedItem | null> {
+    const record = this.findArticleRecord(feedUrl, articleGuid);
+    if (!record) {
+      return null;
+    }
+
+    const { tag: canonicalTag, created } = ensureTagExists(this.settings, tag);
+    const assigned = toggleTagOnArticle(record.article, canonicalTag, true);
+    if (!created && !assigned) {
+      return record.article;
+    }
+
+    await this.withImmediateDatabaseMutation(async () => {
+      if (created) {
+        await persistTagMutation(
+          this.db?.isInitialized() ? this.db : null,
+          () => this.saveSettingsOnly(),
+          this.settings.availableTags,
+          assigned ? [record.article] : [],
+        );
+        return;
+      }
+
+      await persistArticleMutation(
+        this.db?.isInitialized() ? this.db : null,
+        () => this.saveSettingsOnly(),
+        record.article,
+      );
+    });
+
+    return record.article;
+  }
+
+  public async renameTag(previousName: string, nextTag: Tag): Promise<boolean> {
+    const tag = findTagByName(this.settings, previousName);
+    if (!tag) {
+      return false;
+    }
+
+    const duplicate = findTagByName(this.settings, nextTag.name);
+    if (duplicate && duplicate !== tag) {
+      return false;
+    }
+
+    const affectedArticles = updateTagInSettings(this.settings, tag, nextTag);
+    await this.withImmediateDatabaseMutation(async () => {
+      await persistTagMutation(
+        this.db?.isInitialized() ? this.db : null,
+        () => this.saveSettingsOnly(),
+        this.settings.availableTags,
+        affectedArticles,
+      );
+    });
+
+    return true;
+  }
+
+  public async deleteTag(tagName: string): Promise<boolean> {
+    const tag = findTagByName(this.settings, tagName);
+    if (!tag) {
+      return false;
+    }
+
+    const affectedArticles = deleteTagFromSettings(this.settings, tag);
+    await this.withImmediateDatabaseMutation(async () => {
+      await persistTagMutation(
+        this.db?.isInitialized() ? this.db : null,
+        () => this.saveSettingsOnly(),
+        this.settings.availableTags,
+        affectedArticles,
+      );
+    });
+
+    return true;
+  }
+
+  public async updateTagColor(
+    tagName: string,
+    color: string,
+  ): Promise<boolean> {
+    const tag = findTagByName(this.settings, tagName);
+    if (!tag) {
+      return false;
+    }
+
+    if (tag.color === color) {
+      return true;
+    }
+
+    const affectedArticles = updateTagColorInSettings(
+      this.settings,
+      tag.name,
+      color,
+    );
+    await this.withImmediateDatabaseMutation(async () => {
+      await persistTagMutation(
+        this.db?.isInitialized() ? this.db : null,
+        () => this.saveSettingsOnly(),
+        this.settings.availableTags,
+        affectedArticles,
+      );
+    });
+
+    return true;
+  }
+
+  /**
+   * Reloads ONLY the user settings (JSON) without touching the database or bulk data.
+   * This is intended for vault watcher events on usersettings.json to avoid DB races.
+   */
+  private async reloadUserSettingsOnly(): Promise<void> {
+    const data = await this.loadUserSettings();
+    if (data) {
+      // Merge keys one by one to preserve the this.settings object reference
+      if (data.display) {
+        this.settings.display = Object.assign(
+          {},
+          this.settings.display,
+          data.display,
+        );
+      }
+      if (data.filters) {
+        this.settings.filters = Object.assign(
+          {},
+          this.settings.filters,
+          data.filters,
+        );
+      }
+      if (data.media) {
+        this.settings.media = Object.assign(
+          {},
+          this.settings.media,
+          data.media,
+        );
+      }
+      if (data.articleSaving) {
+        this.settings.articleSaving = Object.assign(
+          {},
+          this.settings.articleSaving,
+          data.articleSaving,
+        );
+      }
+
+      // Handle simple top-level fields
+      const simpleKeys: (keyof RssDashboardSettings)[] = [
+        "viewStyle",
+        "refreshInterval",
+        "maxItems",
+        "readerViewLocation",
+        "useWebViewer",
+        "sidebarCollapsed",
+        "autoTagging",
+      ];
+      for (const key of simpleKeys) {
+        if (data[key] !== undefined) {
+          // @ts-ignore
+          this.settings[key] = data[key];
+        }
+      }
+    }
   }
 
   public notifyFiltersUpdated(payload: FiltersUpdatedEventPayload): void {
@@ -251,8 +546,69 @@ export default class RssDashboardPlugin extends Plugin {
             ) => {
               void this.updateArticleFromReader(item, updates, shouldRerender);
             },
-            () => {
-              void this.saveSettings();
+            {
+              onToggleArticleTag: async (
+                item: FeedItem,
+                tag: Tag,
+                checked: boolean,
+              ) => {
+                if (!item.feedUrl) {
+                  return;
+                }
+                const updatedArticle = await this.toggleArticleTag(
+                  item.feedUrl,
+                  item.guid,
+                  tag,
+                  checked,
+                );
+                if (!updatedArticle) {
+                  return;
+                }
+                Object.assign(item, updatedArticle, {
+                  tags: this.cloneTags(updatedArticle.tags),
+                });
+                await this.syncDashboardArticleUpdate(
+                  item.guid,
+                  item.feedUrl,
+                  { tags: this.cloneTags(updatedArticle.tags) },
+                  false,
+                );
+              },
+              onCreateTagAndAssign: async (item: FeedItem, tag: Tag) => {
+                if (!item.feedUrl) {
+                  return;
+                }
+                const updatedArticle = await this.createTagAndAssign(
+                  item.feedUrl,
+                  item.guid,
+                  tag,
+                );
+                if (!updatedArticle) {
+                  return;
+                }
+                Object.assign(item, updatedArticle, {
+                  tags: this.cloneTags(updatedArticle.tags),
+                });
+                await this.syncDashboardArticleUpdate(
+                  item.guid,
+                  item.feedUrl,
+                  { tags: this.cloneTags(updatedArticle.tags) },
+                  false,
+                );
+                await this.refreshDashboardViews();
+              },
+              onRenameTag: async (previousName: string, nextTag: Tag) => {
+                const renamed = await this.renameTag(previousName, nextTag);
+                if (renamed) {
+                  await this.refreshDashboardViews();
+                }
+              },
+              onDeleteTag: async (tagName: string) => {
+                const deleted = await this.deleteTag(tagName);
+                if (deleted) {
+                  await this.refreshDashboardViews();
+                }
+              },
             },
           ),
       );
@@ -419,11 +775,15 @@ export default class RssDashboardPlugin extends Plugin {
 
           if (file.path === settingsPath && !this.isWritingToSettings) {
             void (async () => {
-              await this.loadSettings();
+              await this.reloadUserSettingsOnly();
               await this.refreshOpenViews();
             })();
           } else if (file.path === dbPath && !this.isWritingToDatabase) {
             void (async () => {
+              // Flush any pending local sync before loading external changes
+              if (this.dbSyncTimer) {
+                await this.flushDatabaseToDisk();
+              }
               if (this.db?.isInitialized()) {
                 await this.db.reinit();
                 this.settings.feeds = this.db.loadAllFeeds();
@@ -564,60 +924,49 @@ export default class RssDashboardPlugin extends Plugin {
   }
 
   private async onArticleSaved(item: FeedItem): Promise<void> {
-    if (item.feedUrl) {
-      const feed = this.settings.feeds.find((f) => f.url === item.feedUrl);
-      if (feed) {
-        const originalItem = feed.items.find((i) => i.guid === item.guid);
-        if (originalItem) {
-          originalItem.saved = true;
-
-          if (this.settings.articleSaving.addSavedTag) {
-            if (!originalItem.tags) {
-              originalItem.tags = [];
-            }
-
-            if (
-              !originalItem.tags.some((t) => t.name.toLowerCase() === "saved")
-            ) {
-              const savedTag = this.settings.availableTags.find(
-                (t) => t.name.toLowerCase() === "saved",
-              );
-              if (savedTag) {
-                originalItem.tags.push({ ...savedTag });
-              } else {
-                originalItem.tags.push({ name: "saved", color: "#3498db" });
-              }
-            }
-          }
-
-          // Fast path: single article upsert
-          this.isWritingToDatabase = true;
-          if (this.databaseWriteTimeout) {
-            clearTimeout(this.databaseWriteTimeout);
-            this.databaseWriteTimeout = null;
-          }
-          if (this.db?.isInitialized()) {
-            this.db.upsertArticle(originalItem);
-            this.db.scheduleSave();
-          }
-          this.databaseWriteTimeout = setTimeout(() => {
-            this.isWritingToDatabase = false;
-          }, 3000);
-
-          await this.saveSettingsOnly();
-
-          await this.syncDashboardArticleUpdate(
-            item.guid,
-            item.feedUrl,
-            {
-              saved: true,
-              tags: originalItem.tags ? [...originalItem.tags] : [],
-            },
-            false,
-          );
-        }
-      }
+    if (!item.feedUrl) {
+      return;
     }
+
+    const record = this.findArticleRecord(item.feedUrl, item.guid);
+    if (!record) {
+      return;
+    }
+
+    const nextTags = this.cloneTags(record.article.tags);
+    if (
+      this.settings.articleSaving.addSavedTag &&
+      !nextTags.some((tag) => tag.name.toLowerCase() === "saved")
+    ) {
+      const savedTag =
+        this.settings.availableTags.find(
+          (tag) => tag.name.toLowerCase() === "saved",
+        ) ?? { name: "saved", color: "#3498db" };
+      nextTags.push({ ...savedTag });
+    }
+
+    const updatedArticle = await this.persistArticlePatch(item.feedUrl, item.guid, {
+      saved: true,
+      savedFilePath: item.savedFilePath,
+      tags: nextTags,
+    });
+    if (!updatedArticle) {
+      return;
+    }
+
+    Object.assign(item, updatedArticle, {
+      tags: this.cloneTags(updatedArticle.tags),
+    });
+    await this.syncDashboardArticleUpdate(
+      item.guid,
+      item.feedUrl,
+      {
+        saved: true,
+        savedFilePath: updatedArticle.savedFilePath,
+        tags: this.cloneTags(updatedArticle.tags),
+      },
+      false,
+    );
   }
 
   private async updateArticleFromReader(
@@ -632,11 +981,24 @@ export default class RssDashboardPlugin extends Plugin {
       const originalItem = feed.items.find((i) => i.guid === item.guid);
       if (!originalItem) return;
 
-      await this.updateArticle(item.guid, item.feedUrl, updates, false);
+      const updatedArticle = await this.persistArticlePatch(
+        item.feedUrl,
+        item.guid,
+        updates,
+      );
+      if (!updatedArticle) {
+        return;
+      }
+      Object.assign(item, updatedArticle, {
+        tags: this.cloneTags(updatedArticle.tags),
+      });
       await this.syncDashboardArticleUpdate(
         item.guid,
         item.feedUrl,
-        updates,
+        {
+          ...updates,
+          ...(updatedArticle.tags ? { tags: this.cloneTags(updatedArticle.tags) } : {}),
+        },
         !!shouldRerender,
       );
     }
@@ -798,30 +1160,9 @@ export default class RssDashboardPlugin extends Plugin {
     updates: Partial<FeedItem>,
     shouldRefreshView = true,
   ) {
-    const feed = this.settings.feeds.find((f) => f.url === feedUrl);
-    if (!feed) return;
-
-    const article = feed.items.find((item) => item.guid === articleGuid);
-    if (!article) return;
-
-    Object.assign(article, updates);
-
-    // Fast path: single article upsert instead of full sync
-    this.isWritingToDatabase = true;
-    if (this.databaseWriteTimeout) {
-      clearTimeout(this.databaseWriteTimeout);
-      this.databaseWriteTimeout = null;
-    }
-    try {
-      if (this.db?.isInitialized()) {
-        this.db.upsertArticle(article);
-        this.db.scheduleSave();
-      }
-      await this.saveSettingsOnly();
-    } finally {
-      this.databaseWriteTimeout = setTimeout(() => {
-        this.isWritingToDatabase = false;
-      }, 3000);
+    const article = await this.persistArticlePatch(feedUrl, articleGuid, updates);
+    if (!article) {
+      return;
     }
 
     if (shouldRefreshView) {
@@ -967,7 +1308,7 @@ export default class RssDashboardPlugin extends Plugin {
           await this.saveSettings();
           // Avoid expensive immediate full sync for huge OPML imports.
           if (addedFeeds.length <= IMMEDIATE_SYNC_MAX_OPML_FEEDS) {
-            await this.forceDatabaseSync();
+            await this.flushDatabaseToDisk();
           }
 
           const view = await this.getActiveDashboardView();
@@ -1102,7 +1443,7 @@ export default class RssDashboardPlugin extends Plugin {
     }
 
     await this.saveSettingsOnly();
-    await this.forceDatabaseSync();
+    await this.flushDatabaseToDisk();
     const view = await this.getActiveDashboardView();
     if (view) {
       view.render();
@@ -1211,7 +1552,7 @@ export default class RssDashboardPlugin extends Plugin {
               await this.db.init(pluginDir, this.app.vault.adapter);
             }
 
-            await this.forceDatabaseSync();
+            await this.flushDatabaseToDisk();
             await this.saveSettingsOnly();
             await this.refreshDashboardViews();
             const discoverView = await this.getActiveDiscoverView();
@@ -1443,7 +1784,7 @@ export default class RssDashboardPlugin extends Plugin {
       }
 
       const beforeBytes = await this.getDatabaseFileSizeBytes();
-      await this.forceDatabaseSync();
+      await this.flushDatabaseToDisk();
       await this.db.compactStorage();
       const afterBytes = await this.getDatabaseFileSizeBytes();
 
@@ -1932,10 +2273,12 @@ export default class RssDashboardPlugin extends Plugin {
         );
       }
 
-      // Initialize SQLite database
-      this.db = new DatabaseService();
+      // Initialize SQLite database only on first load
       const pluginDir = this.manifest.dir ?? "";
-      await this.db.init(pluginDir, this.app.vault.adapter);
+      if (!this.db || !this.db.isInitialized()) {
+        this.db = new DatabaseService();
+        await this.db.init(pluginDir, this.app.vault.adapter);
+      }
 
       if (this.db.hasCorruption()) {
         const recoveredFromJson =
@@ -2030,7 +2373,10 @@ export default class RssDashboardPlugin extends Plugin {
           continue;
         }
 
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, parsed);
+        Object.keys(this.settings).forEach((key) => {
+          delete (this.settings as unknown as Record<string, unknown>)[key];
+        });
+        Object.assign(this.settings, DEFAULT_SETTINGS, parsed);
         this.settings.feeds = parsed.feeds;
         this.settings.folders = Array.isArray(parsed.folders)
           ? parsed.folders
@@ -2218,13 +2564,17 @@ export default class RssDashboardPlugin extends Plugin {
     // Save settings-only (without feeds/folders/tags) to usersettings.json
     await this.saveSettingsOnly();
 
-    // During background import, defer bulk SQLite sync to avoid UI lockups.
     if (this.isBackgroundImporting) {
       return;
     }
 
-    // Debounce full SQLite sync
-    this.scheduleDatabaseSync();
+    // Write to in-memory SQLite immediately, debounce disk flush only
+    if (this.db?.isInitialized()) {
+      this.db.saveAllFeeds(this.settings.feeds);
+      this.db.saveAllFolders(this.settings.folders);
+      this.db.saveAllTags(this.settings.availableTags);
+    }
+    this.scheduleDiskFlush();
   }
 
   private async saveSettingsOnly(): Promise<void> {
@@ -2269,17 +2619,17 @@ export default class RssDashboardPlugin extends Plugin {
     URL.revokeObjectURL(url);
   }
 
-  private scheduleDatabaseSync(): void {
+  private scheduleDiskFlush(): void {
     if (this.dbSyncTimer) {
       clearTimeout(this.dbSyncTimer);
     }
     this.dbSyncTimer = setTimeout(() => {
-      void this.forceDatabaseSync();
+      void this.flushDatabaseToDisk();
       this.dbSyncTimer = null;
-    }, 5000);
+    }, 2000); // Reduced to 2s for more responsive disk sync
   }
 
-  private async forceDatabaseSync(): Promise<void> {
+  private async flushDatabaseToDisk(): Promise<void> {
     if (this.dbSyncTimer) {
       clearTimeout(this.dbSyncTimer);
       this.dbSyncTimer = null;
@@ -2291,9 +2641,6 @@ export default class RssDashboardPlugin extends Plugin {
     this.isWritingToDatabase = true;
     try {
       if (this.db?.isInitialized()) {
-        this.db.saveAllFeeds(this.settings.feeds);
-        this.db.saveAllFolders(this.settings.folders);
-        this.db.saveAllTags(this.settings.availableTags);
         await this.db.forceSave();
       }
     } finally {
@@ -2315,13 +2662,17 @@ export default class RssDashboardPlugin extends Plugin {
   }
 
   onunload() {
-    void (async () => {
-      try {
-        await this.forceDatabaseSync();
-      } finally {
-        this.db?.close();
+    // Synchronous shutdown: sync in-memory state to SQLite object, then export
+    try {
+      if (this.db?.isInitialized()) {
+        this.db.saveAllFeeds(this.settings.feeds);
+        this.db.saveAllFolders(this.settings.folders);
+        this.db.saveAllTags(this.settings.availableTags);
+        this.db.saveSync(this.app.vault.adapter, this.manifest.dir ?? "");
       }
-    })();
+    } finally {
+      this.db?.close();
+    }
   }
 
   private async validateSavedArticles(): Promise<void> {
@@ -2446,7 +2797,7 @@ export default class RssDashboardPlugin extends Plugin {
         await this.db.init(pluginDir, this.app.vault.adapter);
       }
 
-      await this.forceDatabaseSync();
+      await this.flushDatabaseToDisk();
       await this.saveSettingsOnly();
       new Notice("Restored from backup successfully");
       const view = await this.getActiveDashboardView();

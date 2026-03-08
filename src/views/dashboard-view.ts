@@ -254,7 +254,6 @@ export class RssDashboardView extends ItemView {
     this.applySidebarWidth();
 
     if (this.sidebar) {
-      this.sidebar.clearFolderPathCache();
       this.sidebar["options"] = {
         currentFolder: this.currentFolder,
         currentFeed: this.currentFeed,
@@ -346,6 +345,18 @@ export class RssDashboardView extends ItemView {
           void (this.app as any).plugins.plugins[
             "rss-dashboard"
           ].openTagsSettings();
+        },
+        onToggleArticleTag: async (article, tag, checked) => {
+          await this.handleToggleArticleTag(article, tag, checked);
+        },
+        onCreateTagAndAssign: async (article, tag) => {
+          await this.handleCreateTagAndAssign(article, tag);
+        },
+        onRenameTag: async (previousName, nextTag) => {
+          await this.handleRenameTag(previousName, nextTag);
+        },
+        onDeleteTag: async (tagName) => {
+          await this.handleDeleteTag(tagName);
         },
         onPersistSettings: async () => {
           await this.plugin.saveSettings();
@@ -1161,7 +1172,10 @@ export class RssDashboardView extends ItemView {
   }
 
   private handleAddFolder(name: string): void {
-    void this.plugin.ensureFolderExists(name);
+    void (async () => {
+      await this.plugin.ensureFolderExists(name);
+      this.render();
+    })();
   }
 
   private handleAddSubfolder(parent: string, name: string): void {
@@ -1517,6 +1531,63 @@ export class RssDashboardView extends ItemView {
     shouldRerender = true,
   ): Promise<void> {
     await this.updateArticleStatus(article, updates, shouldRerender);
+  }
+
+  private async handleToggleArticleTag(
+    article: FeedItem,
+    tag: { name: string; color: string },
+    checked: boolean,
+  ): Promise<void> {
+    const updatedArticle = await this.plugin.toggleArticleTag(
+      article.feedUrl,
+      article.guid,
+      tag,
+      checked,
+    );
+    if (!updatedArticle) {
+      return;
+    }
+
+    Object.assign(article, updatedArticle, {
+      tags: updatedArticle.tags.map((articleTag) => ({ ...articleTag })),
+    });
+    this.syncArticleListAfterUpdate(article);
+  }
+
+  private async handleCreateTagAndAssign(
+    article: FeedItem,
+    tag: { name: string; color: string },
+  ): Promise<void> {
+    const updatedArticle = await this.plugin.createTagAndAssign(
+      article.feedUrl,
+      article.guid,
+      tag,
+    );
+    if (!updatedArticle) {
+      return;
+    }
+
+    Object.assign(article, updatedArticle, {
+      tags: updatedArticle.tags.map((articleTag) => ({ ...articleTag })),
+    });
+    await this.plugin.refreshOpenViews();
+  }
+
+  private async handleRenameTag(
+    previousName: string,
+    nextTag: { name: string; color: string },
+  ): Promise<void> {
+    const renamed = await this.plugin.renameTag(previousName, nextTag);
+    if (renamed) {
+      await this.plugin.refreshOpenViews();
+    }
+  }
+
+  private async handleDeleteTag(tagName: string): Promise<void> {
+    const deleted = await this.plugin.deleteTag(tagName);
+    if (deleted) {
+      await this.plugin.refreshOpenViews();
+    }
   }
 
   private async handleArticleSave(article: FeedItem): Promise<void> {
