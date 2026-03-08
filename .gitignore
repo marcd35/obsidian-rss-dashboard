@@ -24,6 +24,11 @@ test_files/*
 !test_files/unit/
 test_files/unit/*
 !test_files/unit/feed-empty-validation.test.ts
+!test_files/
+test_files/*
+!test_files/unit/
+test_files/unit/*
+!test_files/unit/feed-empty-validation.test.ts
 
 # agent
 docs/archive
