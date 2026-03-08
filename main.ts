@@ -38,13 +38,7 @@ import {
   formatFeedParseNoticeMessage,
   getFeedErrorMessage,
 } from "./src/services/feed-parser";
-import {
-  FeedParser,
-  formatFeedParseNoticeMessage,
-  getFeedErrorMessage,
-} from "./src/services/feed-parser";
 import { ArticleSaver } from "./src/services/article-saver";
-import { AutoTagService } from "./src/services/auto-tag-service";
 import { AutoTagService } from "./src/services/auto-tag-service";
 import { OpmlManager } from "./src/services/opml-manager";
 import { MediaService } from "./src/services/media-service";
@@ -122,51 +116,7 @@ export default class RssDashboardPlugin extends Plugin {
           ) => Promise<void>;
         };
 
-        if (
-          readerState.currentItem &&
-          typeof readerState.displayItem === "function"
-        ) {
-          await readerState.displayItem(
-            readerState.currentItem,
-            readerState.relatedItems ?? [],
-          );
-        }
-      } catch {
-        // Best effort only: reader refresh should not block settings persistence.
-      }
-    }
-  }
-
-  public async refreshOpenViews(): Promise<void> {
-    await this.refreshDashboardViews();
-    await this.refreshReaderViews();
-  }
-
-  public async refreshReaderViews(): Promise<void> {
-    const leaves = this.app.workspace.getLeavesOfType(RSS_READER_VIEW_TYPE);
-    for (const leaf of leaves) {
-      if (requireApiVersion("1.7.2")) {
-        await leaf.loadIfDeferred();
-      }
-      const view = leaf.view;
-      if (!(view instanceof ReaderView)) {
-        continue;
-      }
-
-      try {
-        const readerState = view as unknown as {
-          currentItem?: FeedItem | null;
-          relatedItems?: FeedItem[];
-          displayItem?: (
-            item: FeedItem,
-            relatedItems?: FeedItem[],
-          ) => Promise<void>;
-        };
-
-        if (
-          readerState.currentItem &&
-          typeof readerState.displayItem === "function"
-        ) {
+        if (readerState.currentItem && typeof readerState.displayItem === "function") {
           await readerState.displayItem(
             readerState.currentItem,
             readerState.relatedItems ?? [],
@@ -215,7 +165,7 @@ export default class RssDashboardPlugin extends Plugin {
     return null;
   }
 
-  public async openTagsSettings(): Promise<void> {
+    public async openTagsSettings(): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment
     const setting = (this.app as any).setting;
     if (setting) {
@@ -224,7 +174,7 @@ export default class RssDashboardPlugin extends Plugin {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
       setting.openTabById(this.manifest.id);
       if (this.settingTab) {
-        this.settingTab.activateTab("Tags");
+        this.settingTab.activateTab('Tags');
       }
     }
   }
@@ -243,6 +193,7 @@ export default class RssDashboardPlugin extends Plugin {
     }
   }
 
+
   async onload() {
     await this.loadSettings();
 
@@ -252,7 +203,6 @@ export default class RssDashboardPlugin extends Plugin {
     }
 
     try {
-      this.feedParser = new FeedParser(this.settings);
       this.feedParser = new FeedParser(this.settings);
       this.articleSaver = new ArticleSaver(
         this.app,
@@ -403,14 +353,6 @@ export default class RssDashboardPlugin extends Plugin {
         name: "Apply feed limits to all feeds",
         callback: () => {
           void this.applyFeedLimitsToAllFeeds();
-        },
-      });
-
-      this.addCommand({
-        id: "reapply-auto-tag-rules",
-        name: "Reapply auto-tag rules to all articles",
-        callback: () => {
-          void this.reapplyAutoTagRulesToAllArticles();
         },
       });
 
@@ -1033,21 +975,9 @@ export default class RssDashboardPlugin extends Plugin {
     const totalFeeds = this.backgroundImportQueue.length;
     let processedCount = 0;
     const saveEvery =
-      totalFeeds >= 20000
-        ? 200
-        : totalFeeds >= 5000
-          ? 100
-          : totalFeeds >= 1000
-            ? 25
-            : 5;
+      totalFeeds >= 20000 ? 200 : totalFeeds >= 5000 ? 100 : totalFeeds >= 1000 ? 25 : 5;
     const renderEvery =
-      totalFeeds >= 20000
-        ? 500
-        : totalFeeds >= 5000
-          ? 150
-          : totalFeeds >= 1000
-            ? 40
-            : 3;
+      totalFeeds >= 20000 ? 500 : totalFeeds >= 5000 ? 150 : totalFeeds >= 1000 ? 40 : 3;
     const interFeedDelayMs = totalFeeds >= 5000 ? 10 : 100;
     const shouldRenderDuringImport = totalFeeds < 5000;
 
@@ -1081,7 +1011,6 @@ export default class RssDashboardPlugin extends Plugin {
         feedMetadata.importStatus = "completed";
       } catch (error) {
         feedMetadata.importStatus = "failed";
-        feedMetadata.importError = getFeedErrorMessage(error);
         feedMetadata.importError = getFeedErrorMessage(error);
         processedCount++;
       } finally {
@@ -1155,12 +1084,11 @@ export default class RssDashboardPlugin extends Plugin {
             throw new Error("Invalid usersettings.json");
           }
 
-          const parsedWithCollections =
-            parsed as Partial<RssDashboardSettings> & {
-              feeds?: unknown;
-              folders?: unknown;
-              availableTags?: unknown;
-            };
+          const parsedWithCollections = parsed as Partial<RssDashboardSettings> & {
+            feeds?: unknown;
+            folders?: unknown;
+            availableTags?: unknown;
+          };
           const hasFeedCollections =
             Array.isArray(parsedWithCollections.feeds) ||
             Array.isArray(parsedWithCollections.folders) ||
@@ -1351,10 +1279,7 @@ export default class RssDashboardPlugin extends Plugin {
           // Best-effort rollback to previous database file if import fails.
           if (previousDbBinary) {
             try {
-              await this.app.vault.adapter.writeBinary(
-                dbPath,
-                previousDbBinary,
-              );
+              await this.app.vault.adapter.writeBinary(dbPath, previousDbBinary);
             } catch {
               // ignore rollback failure
             }
@@ -1535,7 +1460,7 @@ export default class RssDashboardPlugin extends Plugin {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(opmlContent);
         new Notice(
-          "Feed list copied to clipboard. Paste into your reader to import",
+          "Feed list copied to clipboard. Paste into your reader to import"
         );
         return;
       }
@@ -1548,9 +1473,7 @@ export default class RssDashboardPlugin extends Plugin {
       const blob = new Blob([opmlContent], { type: "text/xml" });
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
-      new Notice(
-        "Feed list opened in a new window. Save to download and import",
-      );
+      new Notice("Feed list opened in a new window. Save to download and import");
       // Note: Don't revoke the URL immediately - the new window needs it
       // It will be revoked when the window closes or navigates away
     } catch (error) {
@@ -1713,9 +1636,6 @@ export default class RssDashboardPlugin extends Plugin {
         const parsedFeed = await this.feedParser.parseFeed(url, newFeed, {
           allowEmpty: true,
         });
-        const parsedFeed = await this.feedParser.parseFeed(url, newFeed, {
-          allowEmpty: true,
-        });
         if (parsedFeed.folder) {
           await this.ensureFolderExists(parsedFeed.folder, {
             saveSettings: false,
@@ -1733,7 +1653,6 @@ export default class RssDashboardPlugin extends Plugin {
         new Notice(`Feed "${title}" added`);
         return true;
       } catch (error) {
-        new Notice(formatFeedParseNoticeMessage(error));
         new Notice(formatFeedParseNoticeMessage(error));
         return false;
       }
@@ -1885,29 +1804,6 @@ export default class RssDashboardPlugin extends Plugin {
         }
       }
 
-      if (!this.settings.media) {
-        this.settings.media = DEFAULT_SETTINGS.media;
-      } else {
-        this.settings.media = Object.assign(
-          {},
-          DEFAULT_SETTINGS.media,
-          this.settings.media,
-        );
-      }
-
-      if (!this.settings.autoTagging) {
-        this.settings.autoTagging = DEFAULT_SETTINGS.autoTagging;
-      } else {
-        this.settings.autoTagging = Object.assign(
-          {},
-          DEFAULT_SETTINGS.autoTagging,
-          this.settings.autoTagging,
-        );
-        if (!Array.isArray(this.settings.autoTagging.rules)) {
-          this.settings.autoTagging.rules = [];
-        }
-      }
-
       // Ensure display settings are properly initialized
       if (!this.settings.display) {
         this.settings.display = DEFAULT_SETTINGS.display;
@@ -1956,8 +1852,7 @@ export default class RssDashboardPlugin extends Plugin {
       await this.db.init(pluginDir, this.app.vault.adapter);
 
       if (this.db.hasCorruption()) {
-        const recoveredFromJson =
-          await this.tryRecoverFromJsonBackups(pluginDir);
+        const recoveredFromJson = await this.tryRecoverFromJsonBackups(pluginDir);
         if (recoveredFromJson) {
           new Notice(
             "Database was unreadable; feed data was recovered from backup and will be resynced.",
@@ -2026,10 +1921,7 @@ export default class RssDashboardPlugin extends Plugin {
   }
 
   private async tryRecoverFromJsonBackups(pluginDir: string): Promise<boolean> {
-    const candidatePaths = [
-      `${pluginDir}/data.json.backup`,
-      `${pluginDir}/data.json`,
-    ];
+    const candidatePaths = [`${pluginDir}/data.json.backup`, `${pluginDir}/data.json`];
 
     for (const path of candidatePaths) {
       try {
@@ -2464,3 +2356,4 @@ export default class RssDashboardPlugin extends Plugin {
     return allArticles;
   }
 }
+

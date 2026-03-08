@@ -216,7 +216,9 @@ export class Sidebar {
   private plugin: RssDashboardPlugin;
   private cachedFolderPaths: string[] | null = null;
   private isSearchExpanded = false;
-  private isSidebarToolbarCollapsed = false;
+  private searchQuery = "";
+  // Legacy toggle-row state (disabled by design after header toolbar migration).
+  // private isSidebarToolbarCollapsed = false;
   private isTagsExpanded = false;
   private isRefreshing = false;
   private longPressTimer: number | null = null;
@@ -380,6 +382,7 @@ export class Sidebar {
     // }
     this.renderSearchDock(controlsSurface);
     this.renderFeedFolders();
+    this.applySearchFilterFromState();
 
     requestAnimationFrame(() => {
       this.container.scrollTop = scrollPosition;
@@ -1756,41 +1759,42 @@ export class Sidebar {
     // Deprecated: the filter actions are now in the header toolbar
   }
 
-  private renderToolbarToggle(parentEl: HTMLElement): void {
-    const toggleRow = parentEl.createDiv({
-      cls: "rss-dashboard-toolbar-toggle-row",
-    });
-    const toggleButton = toggleRow.createEl("button", {
-      cls: "rss-dashboard-toolbar-toggle-button",
-      attr: {
-        type: "button",
-        "aria-label": this.isSidebarToolbarCollapsed
-          ? "Show sidebar toolbar"
-          : "Hide sidebar toolbar",
-        "aria-expanded": this.isSidebarToolbarCollapsed ? "false" : "true",
-        title: this.isSidebarToolbarCollapsed ? "Show toolbar" : "Hide toolbar",
-      },
-    });
-    toggleButton.toggleClass("is-collapsed", this.isSidebarToolbarCollapsed);
-    setIcon(
-      toggleButton,
-      this.isSidebarToolbarCollapsed ? "chevron-down" : "chevron-up",
-    );
-    const toolbarToggleSvg = toggleButton.querySelector("svg");
-    const hasRenderableIcon = !!toolbarToggleSvg?.querySelector(
-      "path, line, polyline, polygon, circle, rect",
-    );
-    if (!hasRenderableIcon) {
-      toggleButton.setText(this.isSidebarToolbarCollapsed ? "▾" : "▴");
-    }
-    toggleButton.addEventListener("click", () => {
-      this.isSidebarToolbarCollapsed = !this.isSidebarToolbarCollapsed;
-      if (this.isSidebarToolbarCollapsed) {
-        this.isSearchExpanded = false;
-      }
-      this.render();
-    });
-  }
+  // Legacy toggle-row renderer (disabled after moving toolbar actions into header).
+  // private renderToolbarToggle(parentEl: HTMLElement): void {
+  //   const toggleRow = parentEl.createDiv({
+  //     cls: "rss-dashboard-toolbar-toggle-row",
+  //   });
+  //   const toggleButton = toggleRow.createEl("button", {
+  //     cls: "rss-dashboard-toolbar-toggle-button",
+  //     attr: {
+  //       type: "button",
+  //       "aria-label": this.isSidebarToolbarCollapsed
+  //         ? "Show sidebar toolbar"
+  //         : "Hide sidebar toolbar",
+  //       "aria-expanded": this.isSidebarToolbarCollapsed ? "false" : "true",
+  //       title: this.isSidebarToolbarCollapsed ? "Show toolbar" : "Hide toolbar",
+  //     },
+  //   });
+  //   toggleButton.toggleClass("is-collapsed", this.isSidebarToolbarCollapsed);
+  //   setIcon(
+  //     toggleButton,
+  //     this.isSidebarToolbarCollapsed ? "chevron-down" : "chevron-up",
+  //   );
+  //   const toolbarToggleSvg = toggleButton.querySelector("svg");
+  //   const hasRenderableIcon = !!toolbarToggleSvg?.querySelector(
+  //     "path, line, polyline, polygon, circle, rect",
+  //   );
+  //   if (!hasRenderableIcon) {
+  //     toggleButton.setText(this.isSidebarToolbarCollapsed ? "▾" : "▴");
+  //   }
+  //   toggleButton.addEventListener("click", () => {
+  //     this.isSidebarToolbarCollapsed = !this.isSidebarToolbarCollapsed;
+  //     if (this.isSidebarToolbarCollapsed) {
+  //       this.isSearchExpanded = false;
+  //     }
+  //     this.render();
+  //   });
+  // }
 
   private renderSearchDock(parentEl: HTMLElement): void {
     if (!this.isSearchExpanded) return;
@@ -1869,6 +1873,11 @@ export class Sidebar {
 
     requestAnimationFrame(() => {
       searchInput.focus();
+      updateClearButtonVisibility();
+      searchInput.setSelectionRange(
+        searchInput.value.length,
+        searchInput.value.length,
+      );
       if (window.innerWidth <= 768) {
         window.setTimeout(() => {
           searchInput.scrollIntoView({ behavior: "smooth", block: "center" });
