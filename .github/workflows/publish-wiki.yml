@@ -1,0 +1,29 @@
+name: Publish wiki
+
+# T1 prototype (#922). Manual trigger only. T3 adds the push-to-dev trigger
+# (paths: docs/user/** plus this file) and the guard for the real repository.
+on:
+  workflow_dispatch:
+    inputs:
+      source-folder:
+        description: Folder to publish to the wiki
+        default: docs/wiki-prototype
+        required: true
+
+concurrency:
+  group: publish-wiki
+  cancel-in-progress: true
+
+# The default GITHUB_TOKEN needs contents: write to push to <repo>.wiki.git.
+permissions:
+  contents: write
+
+jobs:
+  publish-wiki:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # v5.0.6
+      - uses: Andrew-Chen-Wang/github-wiki-action@1bbb4280446f9630e8e21a18012cbacf3b0f992e
+        with:
+          path: ${{ inputs.source-folder }}
