@@ -3,8 +3,6 @@ name: Publish wiki
 # T1 prototype (#922). Manual trigger only. T3 adds the push-to-dev trigger
 # (paths: docs/user/** plus this file) and the guard for the real repository.
 on:
-  push:
-    branches: [docs/922-wiki-publish-prototype]
   workflow_dispatch:
     inputs:
       source-folder:
@@ -28,4 +26,4 @@ jobs:
       # v5.0.6
       - uses: Andrew-Chen-Wang/github-wiki-action@1bbb4280446f9630e8e21a18012cbacf3b0f992e
         with:
-          path: ${{ inputs.source-folder || 'docs/wiki-prototype' }}
+          path: ${{ inputs.source-folder }}
