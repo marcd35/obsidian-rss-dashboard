@@ -1,7 +1,10 @@
 name: Publish wiki
 
-# T1 prototype (#922). Manual trigger only. T3 adds the push-to-dev trigger
-# (paths: docs/user/** plus this file) and the guard for the real repository.
+# T1 prototype (#922). Manual trigger only. T3 adds the live trigger:
+#   push:
+#     branches: [master]
+#     paths: [docs/user/**, scripts/build-wiki.mjs, .github/workflows/publish-wiki.yml]
+# together with a guard for the real repository.
 on:
   workflow_dispatch:
     inputs:
@@ -23,7 +26,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # v5.0.6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # Flatten pages, strip front matter, rewrite links, add Edit links.
+      - run: node scripts/build-wiki.mjs "$SOURCE_FOLDER" .wiki-build
+        env:
+          SOURCE_FOLDER: ${{ inputs.source-folder }}
+      # v5.0.6. Its own preprocessing is off: build-wiki.mjs does that work.
       - uses: Andrew-Chen-Wang/github-wiki-action@1bbb4280446f9630e8e21a18012cbacf3b0f992e
         with:
-          path: ${{ inputs.source-folder }}
+          path: .wiki-build
+          preprocess: false
